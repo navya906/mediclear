@@ -187,20 +187,12 @@ The Supabase **service-role key must never be used in the frontend**.
 
 ## Team Responsibilities
 
-| Member | Responsibility |
+| Member | 
 |---|---|
-| **Navya Ghatta** | Backend, PostgreSQL, Supabase, OCR, Parser |
-| **Anup Chalmale** | AI, Medical Logic, Safety, Multilingual Support |
-| **Ishita Anant** | Frontend, UX, Dashboard, Visualization |
+| **Navya Ghatta** 
+| **Anup Chalmale** 
+| **Ishita Anant** 
 
-### Navya
-Owns FastAPI, Supabase, Storage, database, OCR, parsing, normalization, reference-range logic, and backend APIs.
-
-### Anup
-Owns LLM integration, prompts, explanations, historical interpretation, safety validation, doctor questions, and multilingual support.
-
-### Ishita
-Owns React UI, upload flow, dashboard, patient history, charts, trends, responsiveness, and frontend API integration.
 
 ## Git Workflow
 
