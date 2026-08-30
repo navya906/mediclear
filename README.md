@@ -185,13 +185,11 @@ The repository contains `.env.example` only.
 
 The Supabase **service-role key must never be used in the frontend**.
 
-## Team Responsibilities
+## Team 
 
-| Member | 
-|---|---|
-| **Navya Ghatta** 
-| **Anup Chalmale** 
-| **Ishita Anant** 
+**Navya Ghatta** 
+**Anup Chalmale** 
+**Ishita Anant** 
 
 
 ## Git Workflow
