@@ -185,11 +185,13 @@ The repository contains `.env.example` only.
 
 The Supabase **service-role key must never be used in the frontend**.
 
-## Team 
+## Team Responsibilities
 
-**Navya Ghatta** 
-**Anup Chalmale** 
-**Ishita Anant** 
+| Member | 
+|---|---|
+| **Navya Ghatta** 
+| **Anup Chalmale** 
+| **Ishita Anant** 
 
 
 ## Git Workflow
@@ -273,3 +275,61 @@ mediclear/
 **One GitHub repository + one shared Supabase project + one shared database schema.**
 
 Every developer uses their own PC, local environment, virtual environment, and `.env` files, but all development instances connect to the same Supabase project.
+
+---
+
+## Running with Docker (optional)
+
+Requires Docker Desktop installed.
+
+```bash
+# From the repo root
+docker-compose up --build
+```
+
+| Service  | URL                     |
+|----------|-------------------------|
+| Backend  | http://localhost:8000   |
+| Frontend | http://localhost:3000   |
+| API docs | http://localhost:8000/docs |
+
+The backend reads `backend/.env` automatically via `env_file` in docker-compose.
+
+---
+
+## Running Tests
+
+From the `backend/` directory with the virtual environment active:
+
+```powershell
+pip install pytest
+pytest tests/ -v
+```
+
+Current test coverage:
+- `tests/test_parser.py` — lab text extraction (inline, colon, no-ref patterns)
+- `tests/test_normalizer.py` — status logic (LOW/NORMAL/HIGH/CRITICAL), fuzzy matching, fallback ranges
+
+---
+
+## Full Environment Variable Reference
+
+### `backend/.env`
+
+| Variable              | Required | Description                                              |
+|-----------------------|----------|----------------------------------------------------------|
+| `SUPABASE_URL`        | ✅        | Supabase project URL                                     |
+| `SUPABASE_SERVICE_KEY`| ✅        | Supabase service-role key (backend only, never frontend) |
+| `JWT_SECRET`          | ✅        | Supabase JWT secret (from project settings)              |
+| `AI_API_KEY`          | optional | OpenAI (or compatible) API key for AI explanations       |
+| `AI_BASE_URL`         | optional | AI API base URL (default: `https://api.openai.com/v1`)   |
+| `AI_MODEL`            | optional | Model name (default: `gpt-3.5-turbo`)                    |
+| `CORS_ALLOW_ORIGINS`  | optional | Comma-separated allowed origins (default: localhost:5173) |
+
+### `frontend/.env.local`
+
+| Variable                | Required | Description                        |
+|-------------------------|----------|------------------------------------|
+| `VITE_SUPABASE_URL`     | ✅        | Supabase project URL               |
+| `VITE_SUPABASE_ANON_KEY`| ✅        | Supabase anon/public key           |
+| `VITE_API_BASE_URL`     | optional | Backend URL (default: `http://127.0.0.1:8000`) |
