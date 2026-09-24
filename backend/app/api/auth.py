@@ -2,7 +2,9 @@
 Auth router.
 
 POST /auth/register
-  - Sign up a new user via Supabase Auth
+  - Sign up a new user via Supabase Auth Admin API (service key)
+    which correctly hashes the password for signInWithPassword and
+    auto-confirms the email so no verification email is needed.
   - Insert a corresponding row in the patients table
   - Return the new patient profile
 """
@@ -30,11 +32,16 @@ class RegisterRequest(BaseModel):
 def register(body: RegisterRequest):
     supabase = get_supabase()
 
-    # 1. Create the auth.users record via Supabase Auth
+    # 1. Create the auth.users record via the Admin API.
+    #    admin.create_user() uses the service key but correctly hashes the
+    #    password so that the frontend's signInWithPassword call succeeds.
+    #    email_confirm=True skips the email verification step.
     try:
-        auth_response = supabase.auth.sign_up(
-            {"email": body.email, "password": body.password}
-        )
+        auth_response = supabase.auth.admin.create_user({
+            "email": body.email,
+            "password": body.password,
+            "email_confirm": True,
+        })
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -49,7 +56,7 @@ def register(body: RegisterRequest):
 
     auth_user_id = str(auth_response.user.id)
 
-    # 2. Insert the patients row
+    # 2. Insert the patients row (service key bypasses RLS)
     try:
         result = (
             supabase.table("patients")

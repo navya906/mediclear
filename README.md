@@ -355,7 +355,7 @@ Current test coverage:
 | `AI_API_KEY`          | optional | OpenAI (or compatible) API key for AI explanations       |
 | `AI_BASE_URL`         | optional | AI API base URL (default: `https://api.openai.com/v1`)   |
 | `AI_MODEL`            | optional | Model name (default: `gpt-3.5-turbo`)                    |
-| `CORS_ALLOW_ORIGINS`  | optional | Comma-separated allowed origins (default: localhost:5173) |
+| `CORS_ALLOW_ORIGINS`  | optional | Comma-separated allowed origins (default: localhost:3000) |
 
 ### `frontend/.env.local`
 

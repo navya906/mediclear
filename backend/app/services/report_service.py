@@ -67,9 +67,14 @@ def process_report_background(
 
         # ── 5. Normalize + insert lab_results ─────────────────────────────
         insert_payloads = []
+        needs_review_flags = []  # track separately — column not in DB schema
         for pr in parsed_results:
             normalized = normalize_and_score(pr, test_definitions)
             normalized["report_id"] = report_id
+            # Pop needs_review: the lab_results table doesn't have this column.
+            # Run `ALTER TABLE lab_results ADD COLUMN needs_review BOOLEAN DEFAULT FALSE;`
+            # in Supabase SQL Editor if you want to persist this flag.
+            needs_review_flags.append(normalized.pop("needs_review", False))
             insert_payloads.append(normalized)
 
         saved_results = []

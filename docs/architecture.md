@@ -291,7 +291,7 @@ Frontend fetches data for dashboard
 
 | Service | URL |
 |---|---|
-| Frontend | `http://localhost:5173` |
+| Frontend | `http://localhost:3000` |
 | Backend API | `http://127.0.0.1:8000` |
 | API Docs (Swagger) | `http://127.0.0.1:8000/docs` |
 | Database | Shared Supabase PostgreSQL project |

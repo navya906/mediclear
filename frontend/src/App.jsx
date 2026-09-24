@@ -1,5 +1,6 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import AuthGuard from './components/AuthGuard'
+import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
 import ProfilePage from './pages/ProfilePage'
@@ -26,8 +27,8 @@ export default function App() {
         <Route path="/reports/:id"  element={<AuthGuard><ReportDetailsPage /></AuthGuard>} />
         <Route path="/dashboard"    element={<AuthGuard><DashboardPage /></AuthGuard>} />
 
-        {/* Default redirect */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* Landing page — the true homepage */}
+        <Route path="/" element={<LandingPage />} />
 
         {/* 404 */}
         <Route path="*" element={<NotFoundPage />} />
