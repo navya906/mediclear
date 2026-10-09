@@ -12,6 +12,7 @@ Matching strategy (in order):
 import re
 from typing import Dict, List, Optional
 
+from app.parser.parser import METHOD_WORDS
 from app.parser.reference_ranges import get_fallback_range
 
 # How far outside the range a value must be (as a fraction of the range width)
@@ -36,9 +37,8 @@ ALIASES: Dict[str, List[str]] = {
 }
 
 # Words that describe the sample or method rather than which test it is.
-_FILLER_TOKENS = {
-    "serum", "plasma", "blood", "whole", "level", "levels", "test",
-    "calculated", "direct", "s", "of", "the",
+_FILLER_TOKENS = METHOD_WORDS | {
+    "serum", "plasma", "blood", "whole", "level", "levels", "test", "s", "of", "the",
 }
 
 # A definition must account for MORE than this fraction of the raw name's

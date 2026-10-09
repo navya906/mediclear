@@ -169,3 +169,19 @@ class TestOneSidedAndUnits:
         result = normalize_and_score(parsed, self.DEFS)
         assert (result["reference_min"], result["reference_max"]) == (150.0, 400.0)
         assert result["status"] == "NORMAL"
+
+
+class TestMethodWordsIgnored:
+
+    DEFS = TestDefinitionMatching.SEEDED_DEFS
+
+    @pytest.mark.parametrize("name, expected", [
+        ("Hemoglobin Colorimetric", "hb"),
+        ("Hemoglobin (Photometry)", "hb"),
+        ("TSH ECLIA", "tsh"),
+        ("LDL Cholesterol Direct", "ldl"),
+        ("Free T4 CLIA", "ft4"),
+    ])
+    def test_method_word_does_not_block_match(self, name, expected):
+        parsed = {"test_name_raw": name, "value": 1.0, "extraction_confidence": 0.9}
+        assert normalize_and_score(parsed, self.DEFS)["test_definition_id"] == expected

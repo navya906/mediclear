@@ -32,7 +32,7 @@ MediClear is a healthcare application that helps patients understand laboratory 
 - **Medical Normalizer:** Automated biomarker matching with reference range validation and status classification (`LOW`, `NORMAL`, `HIGH`, `CRITICAL`) for CBC, Lipid, and Thyroid profiles
 
 ### Artificial Intelligence & NLP
-- **LLM Client:** [OpenAI Python SDK](https://github.com/openai/openai-python) — Configurable for OpenAI, Groq (`llama-3.3-70b-versatile`), or any OpenAI-compatible provider
+- **LLM Client:** [OpenAI Python SDK](https://github.com/openai/openai-python) — Configurable for OpenAI, Groq (`openai/gpt-oss-120b`), or any OpenAI-compatible provider
 - **Prompt Engineering:** Strict JSON schema generation with clinical safety validation, patient context injection, and diagnostic disclaimer guardrails
 - **Fallback Engine:** Rule-based explainer providing baseline biomarker context if an external LLM is offline or unconfigured
 
