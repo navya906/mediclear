@@ -47,7 +47,30 @@ def _page_text_by_rows(page) -> str:
             rows.append([w])
             row_mid = mid
 
-    return "\n".join(" ".join(w[4] for w in sorted(row, key=lambda w: w[0])) for row in rows)
+    return "\n".join(_join_row(sorted(row, key=lambda w: w[0])) for row in rows)
+
+
+# Gaps (as a fraction of text height) that are kerning inside a word rather
+# than a space: some PDFs report "Total" as "T" + "otal" or "A1c" as "A1" + "c".
+# A real space is 0.20-0.25 of the height depending on the font (measured on
+# Helvetica, Arial, Arial Narrow, Times, Calibri), so both stay below 0.20.
+_SAME_WORD_GAP = 0.15
+# A slightly wider gap still joins when the next piece starts lowercase
+_SAME_WORD_GAP_LOWERCASE = 0.17
+
+
+def _join_row(words) -> str:
+    text = words[0][4]
+    for prev, word in zip(words, words[1:]):
+        gap = word[0] - prev[2]
+        height = max(prev[3] - prev[1], word[3] - word[1], 1.0)
+        continues_word = gap < height * _SAME_WORD_GAP or (
+            gap < height * _SAME_WORD_GAP_LOWERCASE
+            and word[4][:1].islower()
+            and prev[4][-1:].isalnum()
+        )
+        text += ("" if continues_word else " ") + word[4]
+    return text
 
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:

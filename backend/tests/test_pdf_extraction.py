@@ -137,3 +137,29 @@ def test_unit_after_range_needs_a_range():
     assert parse_lab_text("MCV 88.0 83 - 101 fL")[0]["unit"] == "fL"
     assert parse_lab_text("Hemoglobin 14.2 g/dL 13-17 H")[0]["unit"] == "g/dL"
     assert parse_lab_text("TSH 3.2 0.4 - 4.0")[0]["unit"] == ""
+
+
+def _two_pieces(left, right, gap):
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((40, 100), left, fontsize=9)
+    page.insert_text((40 + fitz.get_text_length(left, fontsize=9) + gap, 100), right, fontsize=9)
+    return doc, page
+
+
+@pytest.mark.parametrize("gap", [1.6, 2.0])
+def test_kerned_word_pieces_are_rejoined(gap):
+    """Some PDFs draw "Total" as "T" + "otal" with a small kerning gap."""
+    doc, page = _two_pieces("T", "otal Cholesterol", gap)
+    assert [w[4] for w in page.get_text("words")][:2] == ["T", "otal"]  # PyMuPDF splits it
+    assert extract_text_from_pdf(doc.tobytes()) == "Total Cholesterol"
+
+
+@pytest.mark.parametrize("left, right, expected", [
+    ("Hepatitis B", "surface Antigen", "Hepatitis B surface Antigen"),
+    ("Vitamin", "D", "Vitamin D"),
+    ("Free", "T4", "Free T4"),
+])
+def test_real_spaces_are_kept(left, right, expected):
+    doc, _ = _two_pieces(left, right, fitz.get_text_length(" ", fontsize=9))
+    assert extract_text_from_pdf(doc.tobytes()) == expected
