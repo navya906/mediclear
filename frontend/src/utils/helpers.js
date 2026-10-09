@@ -57,10 +57,26 @@ export function statusLabel(status) {
 // ── Report processing status ──────────────────────────────────────────────────
 
 const REPORT_STATUS_CONFIG = {
-  completed:  { badgeClass: 'badge-normal', label: 'Completed'  },
-  processing: { badgeClass: 'badge-low',    label: 'Processing' },
-  uploaded:   { badgeClass: 'badge-low',    label: 'Queued'     },
-  failed:     { badgeClass: 'badge-high',   label: 'Failed'     },
+  completed:    { badgeClass: 'badge-normal', label: 'Completed'    },
+  needs_review: { badgeClass: 'badge-low',    label: 'Check values' },
+  processing:   { badgeClass: 'badge-low',    label: 'Processing'   },
+  uploaded:     { badgeClass: 'badge-low',    label: 'Queued'       },
+  failed:       { badgeClass: 'badge-high',   label: 'Failed'       },
+}
+
+/**
+ * True once processing produced results ("needs_review" means some values
+ * should be checked against the original report, but results are ready).
+ */
+export function reportHasResults(status) {
+  return status === 'completed' || status === 'needs_review'
+}
+
+/**
+ * True once the report will not change any more (stop polling).
+ */
+export function isReportFinished(status) {
+  return reportHasResults(status) || status === 'failed'
 }
 
 export function reportStatusBadgeClass(status) {

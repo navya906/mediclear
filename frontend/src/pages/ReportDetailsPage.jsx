@@ -2,6 +2,14 @@ import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import { api } from '../services/api'
+import {
+  isReportFinished,
+  reportHasResults,
+  reportStatusBadgeClass,
+  reportStatusLabel,
+  statusBadgeClass,
+  statusLabel,
+} from '../utils/helpers'
 
 export default function ReportDetailsPage() {
   const { id } = useParams()
@@ -24,7 +32,7 @@ export default function ReportDetailsPage() {
           setReport(reportData)
           setResults(resultsData)
           
-          if (reportData.processing_status === 'completed' || reportData.processing_status === 'failed') {
+          if (isReportFinished(reportData.processing_status)) {
             clearInterval(interval)
             setLoading(false)
           }
@@ -38,12 +46,9 @@ export default function ReportDetailsPage() {
 
     fetchReportAndResults()
     
-    // Poll every 2 seconds if not completed
-    interval = setInterval(() => {
-      if (report && (report.processing_status === 'uploaded' || report.processing_status === 'processing')) {
-        fetchReportAndResults()
-      }
-    }, 2000)
+    // Poll every 2 seconds until processing finishes; fetchReportAndResults
+    // clears the interval. (Checking `report` here would read a stale value.)
+    interval = setInterval(fetchReportAndResults, 2000)
     
     return () => clearInterval(interval)
   }, [id])
@@ -95,11 +100,8 @@ export default function ReportDetailsPage() {
         </Link>
         <h1 className="page-title">{report.file_name}</h1>
         <div className="history-entry-meta" style={{ marginBottom: '2rem' }}>
-          <span className={`badge ${
-            report.processing_status === 'completed' ? 'badge-normal' : 
-            report.processing_status === 'failed' ? 'badge-high' : 'badge-low'
-          }`}>
-            {report.processing_status}
+          <span className={`badge ${reportStatusBadgeClass(report.processing_status)}`}>
+            {reportStatusLabel(report.processing_status)}
           </span>
           <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
             Uploaded on {new Date(report.created_at).toLocaleString()}
@@ -127,13 +129,21 @@ export default function ReportDetailsPage() {
           </div>
         )}
 
-        {report.processing_status === 'completed' && results.length === 0 && (
+        {report.processing_status === 'needs_review' && (
+          <div className="card" style={{ borderColor: 'var(--color-warning)', marginBottom: '1.5rem', fontSize: '0.875rem', lineHeight: 1.5 }}>
+            <strong style={{ color: 'var(--color-warning)' }}>Some values need checking.</strong>{' '}
+            We couldn't read every result with confidence, or the report didn't print a reference range for it.
+            Rows marked <strong>Check</strong> should be compared with your original report.
+          </div>
+        )}
+
+        {reportHasResults(report.processing_status) && results.length === 0 && (
           <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
             No lab results were detected in this report.
           </div>
         )}
 
-        {report.processing_status === 'completed' && results.length > 0 && (
+        {reportHasResults(report.processing_status) && results.length > 0 && (
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead style={{ background: 'var(--color-surface-2)', fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
@@ -150,6 +160,15 @@ export default function ReportDetailsPage() {
                     <tr style={{ borderTop: i === 0 ? 'none' : '1px solid var(--color-border)' }}>
                       <td style={{ padding: '1rem', fontWeight: 500 }}>
                         {res.test_definition ? res.test_definition.display_name : res.test_name_raw}
+                        {res.needs_review && (
+                          <span
+                            className="badge badge-low"
+                            style={{ marginLeft: '0.5rem', fontSize: '0.6875rem' }}
+                            title="Compare this value with your original report"
+                          >
+                            Check
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '1rem' }}>
                         {res.value !== null ? `${res.value} ${res.unit}` : '—'}
@@ -158,11 +177,8 @@ export default function ReportDetailsPage() {
                         {res.reference_text || '—'}
                       </td>
                       <td style={{ padding: '1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                        <span className={`badge ${
-                          res.status === 'NORMAL' ? 'badge-normal' : 
-                          res.status === 'LOW' || res.status === 'HIGH' ? 'badge-high' : 'badge-other'
-                        }`}>
-                          {res.status}
+                        <span className={`badge ${statusBadgeClass(res.status)}`}>
+                          {statusLabel(res.status)}
                         </span>
                         <button 
                           className="btn btn-ghost" 

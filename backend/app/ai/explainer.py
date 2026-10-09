@@ -7,7 +7,8 @@ and returning a parsed JSON dict. It knows nothing about DB persistence.
 
 import json
 import os
-from typing import Optional
+import re
+from typing import List, Optional
 
 from openai import OpenAI
 
@@ -17,16 +18,29 @@ AI_API_KEY = os.environ.get("AI_API_KEY", "")
 AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
 AI_MODEL = os.environ.get("AI_MODEL", "gpt-3.5-turbo")
 
-# Phrases that indicate a definitive diagnostic claim — strip if found
-_UNSAFE_PHRASES = [
-    "you have",
-    "you are diagnosed",
-    "diagnosed with",
-    "take this medication",
-    "you should take",
-    "cure",
-    "treatment is",
+# Patterns that indicate a definitive diagnosis or a treatment instruction.
+# Kept specific so ordinary phrasing ("if you have questions...") still passes.
+_CONDITION_WORDS = (
+    r"(?:disease|disorder|syndrome|cancer|tumou?r|diabetes|an(?:a)?emia|infection|"
+    r"deficiency|failure|hypo\w+|hyper\w+|condition)"
+)
+_UNSAFE_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # "you have diabetes", "you probably have an infection"
+        rf"\byou (?:\w+ )?(?:have|are suffering from|suffer from) (?:a |an )?(?:\w+ ){{0,2}}{_CONDITION_WORDS}\b",
+        r"\b(?:you are|you're|you've been) diagnosed\b",
+        r"\bdiagnos(?:ed|is) (?:with|of)\b",
+        r"\bthis (?:means|confirms|shows) (?:that )?you have\b",
+        # "you should take iron", "you need to stop your medication"
+        r"\byou (?:should|must|need to) (?:take|start|stop|increase|decrease|reduce) \w+",
+        r"\btake this medication\b",
+        r"\b(?:the )?treatment (?:is|should be)\b",
+        r"\b(?:cure|cures|cured)\b",
+    )
 ]
+
+_SAFE_FALLBACK_TEXT = "This result is worth discussing with your doctor."
 
 _client: Optional[OpenAI] = None
 
@@ -39,13 +53,25 @@ def get_client() -> Optional[OpenAI]:
     return _client
 
 
-def _sanitise(text: str) -> str:
-    """Replace any unsafe diagnostic phrasing with a safe fallback."""
-    lower = text.lower()
-    for phrase in _UNSAFE_PHRASES:
-        if phrase in lower:
-            return "This result is worth discussing with your doctor."
-    return text
+def is_unsafe(text: str) -> bool:
+    """True if the text makes a diagnostic claim or gives treatment instructions."""
+    return any(p.search(text) for p in _UNSAFE_PATTERNS)
+
+
+def _sanitise(text) -> str:
+    """Return the text, or a safe fallback if it contains unsafe phrasing."""
+    if not isinstance(text, str):
+        return ""
+    return _SAFE_FALLBACK_TEXT if is_unsafe(text) else text
+
+
+def _sanitise_list(items) -> List[str]:
+    """Drop unsafe or non-string items; a lone string is treated as one item."""
+    if isinstance(items, str):
+        items = [items]
+    if not isinstance(items, list):
+        return []
+    return [i for i in items if isinstance(i, str) and i.strip() and not is_unsafe(i)]
 
 
 def call_llm(user_prompt: str) -> dict:
@@ -72,11 +98,13 @@ def call_llm(user_prompt: str) -> dict:
     content = response.choices[0].message.content
     parsed = json.loads(content)
 
-    # Sanitise output
-    if "simple_explanation" in parsed:
-        parsed["simple_explanation"] = _sanitise(parsed["simple_explanation"])
-
-    return parsed
+    # Sanitise every field the patient will see
+    return {
+        "simple_explanation": _sanitise(parsed.get("simple_explanation", "")),
+        "why_it_matters":     _sanitise(parsed.get("why_it_matters", "")),
+        "possible_reasons":   _sanitise_list(parsed.get("possible_reasons", [])),
+        "doctor_questions":   _sanitise_list(parsed.get("doctor_questions", [])),
+    }
 
 
 def get_prompt_version() -> str:

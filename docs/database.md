@@ -152,13 +152,14 @@ Stores each individual test result extracted from an uploaded report. One report
 | `reference_text` | `text` | Reference range as raw text (e.g., `"3.5 - 5.0"`) |
 | `status` | `text` | One of: `LOW`, `HIGH`, `NORMAL`, `CRITICAL`, `UNKNOWN` |
 | `extraction_confidence` | `numeric` | OCR confidence score (0.0 – 1.0) |
+| `needs_review` | `boolean` | True if the value should be checked against the original report (low confidence or no usable reference range). Added by `data/migrations/001_lab_results_needs_review.sql` |
 | `created_at` | `timestamptz` | When the result was extracted |
 
 **Key design decisions:**
 - `test_name_raw` always preserves the original text from the report, even if matching to `test_definitions` fails.
 - `test_definition_id` is **nullable** — if the parser cannot confidently match a test name to a known definition, the result is still stored without a match.
 - `reference_min` / `reference_max` come from the report itself (not from `test_definitions`) because lab-printed ranges vary.
-- `extraction_confidence` lets the system flag low-confidence extractions for human review (`needs_review` status on the report).
+- `extraction_confidence` and the reference range drive the per-result `needs_review` flag; if any result is flagged, the report's `processing_status` is set to `needs_review` instead of `completed`.
 
 **How `reports` connects to `lab_results`:**
 After a file is uploaded (`reports`), the backend runs OCR/text extraction on it and identifies individual test values. Each value is saved as a separate row in `lab_results`, with `report_id` pointing back to the source report.

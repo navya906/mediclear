@@ -4,6 +4,8 @@ Reference Ranges — fallback reference ranges when OCR cannot extract them.
 Maps canonical test names to (min, max, unit) tuples.
 These are population-level reference ranges for adults and are used ONLY
 as a last resort when the parsed reference range is missing from the report.
+
+Tests whose normal range differs by sex live in SEX_SPECIFIC_RANGES instead.
 """
 
 from typing import Optional, Tuple
@@ -11,9 +13,6 @@ from typing import Optional, Tuple
 # (reference_min, reference_max, unit)
 FALLBACK_RANGES: dict[str, Tuple[float, float, str]] = {
     # ── Complete Blood Count (CBC) ──────────────────────────────────────────
-    "hemoglobin":               (13.0, 17.0,  "g/dL"),  # male range; female 12.0-15.5
-    "hematocrit":               (39.0, 50.0,  "%"),
-    "rbc":                      (4.5,  5.9,   "M/uL"),
     "wbc":                      (4.5,  11.0,  "K/uL"),
     "platelets":                (150.0, 400.0, "K/uL"),
     "mcv":                      (80.0, 100.0, "fL"),
@@ -48,9 +47,7 @@ FALLBACK_RANGES: dict[str, Tuple[float, float, str]] = {
     "total_protein":            (6.3,  8.2,   "g/dL"),
 
     # ── Kidney Function ──────────────────────────────────────────────────────
-    "creatinine":               (0.6,  1.2,   "mg/dL"),
     "blood_urea_nitrogen":      (7.0,  20.0,  "mg/dL"),
-    "uric_acid":                (3.5,  7.2,   "mg/dL"),
     "egfr":                     (60.0, 120.0, "mL/min/1.73m²"),
 
     # ── Blood Glucose ────────────────────────────────────────────────────────
@@ -68,7 +65,6 @@ FALLBACK_RANGES: dict[str, Tuple[float, float, str]] = {
 
     # ── Iron Studies ─────────────────────────────────────────────────────────
     "serum_iron":               (60.0, 170.0, "ug/dL"),
-    "ferritin":                 (12.0, 300.0, "ng/mL"),
     "tibc":                     (240.0, 450.0, "ug/dL"),
 
     # ── Vitamins ─────────────────────────────────────────────────────────────
@@ -78,10 +74,34 @@ FALLBACK_RANGES: dict[str, Tuple[float, float, str]] = {
 }
 
 
-def get_fallback_range(canonical_name: str) -> Optional[Tuple[float, float, str]]:
+# Tests whose adult range differs by sex: {canonical_name: {sex: (min, max, unit)}}
+SEX_SPECIFIC_RANGES: dict[str, dict[str, Tuple[float, float, str]]] = {
+    "hemoglobin":  {"male": (13.0, 17.0, "g/dL"),   "female": (12.0, 15.5, "g/dL")},
+    "hematocrit":  {"male": (40.0, 50.0, "%"),      "female": (36.0, 46.0, "%")},
+    "rbc":         {"male": (4.5,  5.9,  "M/uL"),   "female": (4.0,  5.2,  "M/uL")},
+    "creatinine":  {"male": (0.7,  1.3,  "mg/dL"),  "female": (0.6,  1.1,  "mg/dL")},
+    "uric_acid":   {"male": (3.5,  7.2,  "mg/dL"),  "female": (2.6,  6.0,  "mg/dL")},
+    "ferritin":    {"male": (24.0, 336.0, "ng/mL"), "female": (11.0, 307.0, "ng/mL")},
+}
+
+
+def get_fallback_range(
+    canonical_name: str,
+    sex: Optional[str] = None,
+) -> Optional[Tuple[float, float, str]]:
     """
     Return (min, max, unit) for a canonical test name, or None if not found.
     Normalises the key by lowercasing and replacing spaces/hyphens with underscores.
+
+    For sex-dependent tests, uses the patient's range when sex is "male" or
+    "female". Otherwise returns the span covering both, so a value that is
+    normal for either sex isn't flagged as abnormal.
     """
     key = canonical_name.lower().replace(" ", "_").replace("-", "_")
-    return FALLBACK_RANGES.get(key)
+    by_sex = SEX_SPECIFIC_RANGES.get(key)
+    if by_sex is None:
+        return FALLBACK_RANGES.get(key)
+    if sex in by_sex:
+        return by_sex[sex]
+    male, female = by_sex["male"], by_sex["female"]
+    return min(male[0], female[0]), max(male[1], female[1]), male[2]

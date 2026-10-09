@@ -148,7 +148,11 @@ def _compute_status(value: float, ref_min: Optional[float], ref_max: Optional[fl
     return "NORMAL"
 
 
-def normalize_and_score(parsed_result: Dict, test_definitions: List[Dict]) -> Dict:
+def normalize_and_score(
+    parsed_result: Dict,
+    test_definitions: List[Dict],
+    sex: Optional[str] = None,
+) -> Dict:
     """
     Match a parsed result to a canonical test definition and compute its status.
 
@@ -156,7 +160,8 @@ def normalize_and_score(parsed_result: Dict, test_definitions: List[Dict]) -> Di
       - test_definition_id
       - status (LOW / NORMAL / HIGH / CRITICAL / UNKNOWN)
       - needs_review flag for low-confidence extractions
-      - fills missing reference range from fallback table if possible
+      - fills missing reference range from fallback table if possible,
+        using the patient's sex for sex-dependent tests
     """
     raw_name = parsed_result.get("test_name_raw", "").lower()
     ref_min: Optional[float] = parsed_result.get("reference_min")
@@ -171,7 +176,7 @@ def normalize_and_score(parsed_result: Dict, test_definitions: List[Dict]) -> Di
     # a fallback in K/uL is meaningless for a count reported in /cumm.
     if ref_min is None and ref_max is None and matched_def:
         canonical_name = matched_def.get("canonical_name", "")
-        fallback = get_fallback_range(canonical_name)
+        fallback = get_fallback_range(canonical_name, sex)
         if fallback and _units_compatible(parsed_result.get("unit"), fallback[2]):
             ref_min, ref_max, fallback_unit = fallback
             # Only overwrite unit if the parsed one is empty

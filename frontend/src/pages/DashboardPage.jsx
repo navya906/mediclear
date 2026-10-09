@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import NavBar from '../components/NavBar'
 import { api } from '../services/api'
 import { TREND_TESTS } from '../types/constants'
-import { formatDate } from '../utils/helpers'
+import { formatDate, reportHasResults, reportStatusBadgeClass, reportStatusLabel } from '../utils/helpers'
 
 // ── SVG Trend Chart ───────────────────────────────────────────────────────────
 
@@ -138,7 +138,6 @@ export default function DashboardPage() {
 
   // Stats derived from reports
   const totalReports = reports.length
-  const abnormalCount = reports.filter(r => r.processing_status === 'completed').length  // placeholder until results fetched
 
   useEffect(() => {
     setLoading(true)
@@ -196,7 +195,7 @@ export default function DashboardPage() {
               </div>
               <div className="card stat-card">
                 <div className="stat-label">Processed</div>
-                <div className="stat-value">{reports.filter(r => r.processing_status === 'completed').length}</div>
+                <div className="stat-value">{reports.filter(r => reportHasResults(r.processing_status)).length}</div>
               </div>
               <div className="card stat-card">
                 <div className="stat-label">Trend Points</div>
@@ -250,8 +249,8 @@ export default function DashboardPage() {
                             {formatDate(report.created_at)}
                           </div>
                         </div>
-                        <span className={`badge badge-${report.processing_status === 'completed' ? 'normal' : report.processing_status === 'failed' ? 'high' : 'low'}`}>
-                          {report.processing_status}
+                        <span className={`badge ${reportStatusBadgeClass(report.processing_status)}`}>
+                          {reportStatusLabel(report.processing_status)}
                         </span>
                       </div>
                     </a>

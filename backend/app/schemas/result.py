@@ -28,6 +28,8 @@ class LabResultResponse(BaseModel):
     reference_text: Optional[str] = None
     status: str
     extraction_confidence: Optional[float] = None
+    # False when the column hasn't been migrated yet (row won't contain it)
+    needs_review: bool = False
     created_at: datetime
 
     # The joined test definition (if available)

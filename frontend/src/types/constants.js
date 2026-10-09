@@ -20,8 +20,9 @@ export const HISTORY_CATEGORIES = [
 export const REPORT_STATUSES = {
   UPLOADED:   'uploaded',
   PROCESSING: 'processing',
-  COMPLETED:  'completed',
-  FAILED:     'failed',
+  COMPLETED:    'completed',
+  NEEDS_REVIEW: 'needs_review',
+  FAILED:       'failed',
 }
 
 // ── Upload constraints ────────────────────────────────────────────────────────

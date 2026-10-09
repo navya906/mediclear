@@ -4,13 +4,15 @@ Report Service — background processing pipeline for uploaded lab reports.
 Moved out of app.api.reports to keep the router thin and testable.
 """
 
-import uuid
 import logging
+from typing import List
+
+from postgrest.exceptions import APIError
 
 from app.database.client import fetch_one, get_supabase
 from app.ocr.core import extract_text_from_file
 from app.parser.core import normalize_and_score, parse_lab_text
-from app.ai.generator import generate_explanation
+from app.services.explanation_service import get_or_create_explanation
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,27 @@ def validate_file(file_bytes: bytes, file_ext: str) -> None:
             f"Unsupported file type '{file_ext}'. "
             "Accepted types: PDF, JPG, JPEG, PNG."
         )
+
+
+def _insert_lab_results(supabase, payloads: List[dict]) -> List[dict]:
+    """
+    Insert lab_results rows, including the needs_review flag.
+
+    If the needs_review column hasn't been added yet
+    (data/migrations/001_lab_results_needs_review.sql), retry without it so
+    processing still succeeds; the report-level status still records it.
+    """
+    if not payloads:
+        return []
+    try:
+        return supabase.table("lab_results").insert(payloads).execute().data or []
+    except APIError as exc:
+        # PGRST204: column not found in the schema cache
+        if exc.code != "PGRST204" or "needs_review" not in (exc.message or ""):
+            raise
+        logger.warning("lab_results.needs_review column missing; run the migration to persist it")
+        stripped = [{k: v for k, v in p.items() if k != "needs_review"} for p in payloads]
+        return supabase.table("lab_results").insert(stripped).execute().data or []
 
 
 def process_report_background(
@@ -61,30 +84,26 @@ def process_report_background(
         # ── 3. Parse ──────────────────────────────────────────────────────
         parsed_results = parse_lab_text(raw_text)
 
-        # ── 4. Fetch test definitions ──────────────────────────────────────
+        # ── 4. Fetch test definitions and patient context ─────────────────
         defs_result = supabase.table("test_definitions").select("*").execute()
         test_definitions = defs_result.data or []
+        defs_by_id = {td["id"]: td for td in test_definitions}
+
+        patient = fetch_one(
+            supabase.table("patients").select("id, sex, date_of_birth").eq("id", patient_id)
+        ) or {}
 
         # ── 5. Normalize + insert lab_results ─────────────────────────────
-        insert_payloads = []
-        needs_review_flags = []  # track separately — column not in DB schema
-        for pr in parsed_results:
-            normalized = normalize_and_score(pr, test_definitions)
-            normalized["report_id"] = report_id
-            # Pop needs_review: the lab_results table doesn't have this column.
-            # Run `ALTER TABLE lab_results ADD COLUMN needs_review BOOLEAN DEFAULT FALSE;`
-            # in Supabase SQL Editor if you want to persist this flag.
-            needs_review_flags.append(normalized.pop("needs_review", False))
-            insert_payloads.append(normalized)
+        insert_payloads = [
+            {**normalize_and_score(pr, test_definitions, patient.get("sex")), "report_id": report_id}
+            for pr in parsed_results
+        ]
+        saved_results = _insert_lab_results(supabase, insert_payloads)
 
-        saved_results = []
-        if insert_payloads:
-            res = supabase.table("lab_results").insert(insert_payloads).execute()
-            saved_results = res.data or []
-
-        # ── 6. Mark completed ──────────────────────────────────────────────
+        # ── 6. Mark completed, or needs_review if any value is uncertain ───
+        any_needs_review = any(p["needs_review"] for p in insert_payloads)
         supabase.table("reports").update(
-            {"processing_status": "completed"}
+            {"processing_status": "needs_review" if any_needs_review else "completed"}
         ).eq("id", report_id).execute()
 
         # ── 7. Auto-generate AI explanations for each result ──────────────
@@ -93,26 +112,10 @@ def process_report_background(
 
         for result_row in saved_results:
             try:
-                result_id = result_row.get("id")
-                if not result_id:
+                if not result_row.get("id"):
                     continue
-
-                # Skip if already explained
-                existing = supabase.table("explanations").select("id").eq("lab_result_id", result_id).execute()
-                if existing.data:
-                    continue
-
-                test_def = {}
-                if result_row.get("test_definition_id"):
-                    test_def = fetch_one(
-                        supabase.table("test_definitions").select("*").eq("id", result_row["test_definition_id"])
-                    ) or {}
-
-                explanation_obj = generate_explanation(result_row, test_def, patient_history)
-                payload = explanation_obj.model_dump()
-                payload["id"] = str(uuid.uuid4())
-                supabase.table("explanations").insert(payload).execute()
-
+                test_def = defs_by_id.get(result_row.get("test_definition_id")) or {}
+                get_or_create_explanation(supabase, result_row, test_def, patient_history, patient)
             except Exception as explain_err:
                 logger.warning("Auto-explanation failed for result %s: %s", result_row.get("id"), explain_err)
 

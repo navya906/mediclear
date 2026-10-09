@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import { api } from '../services/api'
+import { reportStatusBadgeClass, reportStatusLabel } from '../utils/helpers'
 
 export default function ReportsPage() {
   const navigate = useNavigate()
@@ -51,11 +52,8 @@ export default function ReportsPage() {
               <div key={report.id} className="history-entry" onClick={() => navigate(`/reports/${report.id}`)} style={{ cursor: 'pointer' }}>
                 <div style={{ flex: 1 }}>
                   <div className="history-entry-meta">
-                    <span className={`badge ${
-                      report.processing_status === 'completed' ? 'badge-normal' : 
-                      report.processing_status === 'failed' ? 'badge-high' : 'badge-low'
-                    }`}>
-                      {report.processing_status}
+                    <span className={`badge ${reportStatusBadgeClass(report.processing_status)}`}>
+                      {reportStatusLabel(report.processing_status)}
                     </span>
                     <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                       {new Date(report.created_at).toLocaleDateString()}
