@@ -1,0 +1,24 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Environment
+python-dotenv==1.0.1
+
+# Supabase
+supabase==2.7.4
+
+# Validation
+pydantic[email]==2.8.2
+
+# JWT verification
+python-jose[cryptography]==3.3.0
+
+# Upload and Processing (Phase 2)
+python-multipart==0.0.9
+Pillow==10.4.0
+PyMuPDF==1.24.9
+pytesseract==0.3.13
+
+# AI (Phase 3)
+openai==1.14.0
