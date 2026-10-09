@@ -7,7 +7,7 @@ Moved out of app.api.reports to keep the router thin and testable.
 import uuid
 import logging
 
-from app.database.client import get_supabase
+from app.database.client import fetch_one, get_supabase
 from app.ocr.core import extract_text_from_file
 from app.parser.core import normalize_and_score, parse_lab_text
 from app.ai.generator import generate_explanation
@@ -104,8 +104,9 @@ def process_report_background(
 
                 test_def = {}
                 if result_row.get("test_definition_id"):
-                    td_res = supabase.table("test_definitions").select("*").eq("id", result_row["test_definition_id"]).single().execute()
-                    test_def = td_res.data or {}
+                    test_def = fetch_one(
+                        supabase.table("test_definitions").select("*").eq("id", result_row["test_definition_id"])
+                    ) or {}
 
                 explanation_obj = generate_explanation(result_row, test_def, patient_history)
                 payload = explanation_obj.model_dump()

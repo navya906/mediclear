@@ -3,11 +3,13 @@ Normalizer — matches raw test names to canonical test definitions
 and computes result status.
 
 Matching strategy (in order):
-  1. Exact canonical_name / display_name match (case-insensitive)
-  2. Token overlap — any word in the canonical name appears in the raw name
+  1. Exact match on canonical name, display name, or a known alias
+  2. Phrase match — every word of a name/alias appears in the raw name;
+     the most specific (longest) phrase wins
   3. Fallback reference ranges when the report didn't include them
 """
 
+import re
 from typing import Dict, List, Optional
 
 from app.parser.reference_ranges import get_fallback_range
@@ -17,14 +19,85 @@ from app.parser.reference_ranges import get_fallback_range
 CRITICAL_MULTIPLIER = 1.5  # > 150% of range width outside boundary → CRITICAL
 
 
-def _token_match(raw_name: str, canonical: str, display: str) -> bool:
-    """Return True if any significant token from the canonical/display name is in raw_name."""
-    raw_tokens = set(raw_name.lower().split())
-    for ref in (canonical, display):
-        ref_tokens = [t for t in ref.lower().split("_") if len(t) > 2]
-        if any(tok in raw_tokens for tok in ref_tokens):
-            return True
-    return False
+# Common lab-report spellings / abbreviations, keyed by canonical_name.
+# These supplement the canonical and display names from test_definitions.
+ALIASES: Dict[str, List[str]] = {
+    "hemoglobin":        ["hb", "hgb", "haemoglobin"],
+    "wbc":               ["tlc", "white blood cells", "total leucocyte count", "total leukocyte count"],
+    "rbc":               ["red blood cells", "rbc count"],
+    "platelets":         ["plt", "platelet", "platelet count"],
+    "hematocrit":        ["hct", "pcv", "haematocrit", "packed cell volume"],
+    "total_cholesterol": ["cholesterol", "serum cholesterol"],
+    "ldl_cholesterol":   ["ldl", "ldl c"],
+    "hdl_cholesterol":   ["hdl", "hdl c"],
+    "triglycerides":     ["tg", "triglyceride"],
+    "free_t3":           ["ft3"],
+    "free_t4":           ["ft4"],
+}
+
+# Words that describe the sample or method rather than which test it is.
+_FILLER_TOKENS = {
+    "serum", "plasma", "blood", "whole", "level", "levels", "test",
+    "calculated", "direct", "s", "of", "the",
+}
+
+# A definition must account for MORE than this fraction of the raw name's
+# meaningful tokens. Stops "Hemoglobin A1c" from matching plain "Hemoglobin".
+_MIN_COVERAGE = 0.5
+
+
+def _tokens(text: str) -> List[str]:
+    """Lowercase and split on anything that isn't a letter or digit."""
+    return [t for t in re.split(r"[^a-z0-9]+", text.lower()) if t]
+
+
+def _phrases_for(td: Dict) -> List[List[str]]:
+    """All token phrases that can identify a test definition."""
+    canonical = td.get("canonical_name", "") or ""
+    display = td.get("display_name", "") or ""
+    texts = [canonical.replace("_", " "), display]
+    # "Free T3 (Triiodothyronine)" → also "Free T3" and "Triiodothyronine"
+    texts.append(re.sub(r"\(.*?\)", " ", display))
+    texts.extend(re.findall(r"\((.*?)\)", display))
+    texts.extend(ALIASES.get(canonical.lower(), []))
+    return [p for p in (_tokens(t) for t in texts) if p]
+
+
+def _match_definition(raw_name: str, test_definitions: List[Dict]) -> Optional[Dict]:
+    """
+    Pick the test definition that best explains raw_name.
+
+    A phrase matches when all of its tokens appear in the raw name. Among
+    matching definitions the one with the longest matched phrase wins, so
+    "HDL Cholesterol" prefers hdl_cholesterol over the bare "cholesterol"
+    alias of total_cholesterol.
+    """
+    raw_tokens = set(_tokens(raw_name))
+    meaningful = raw_tokens - _FILLER_TOKENS
+    if not meaningful:
+        return None
+
+    best_def: Optional[Dict] = None
+    best_score = (0.0, 0)
+    for td in test_definitions:
+        phrases = _phrases_for(td)
+
+        # Exact phrase match is unambiguous
+        if any(set(p) == raw_tokens or set(p) == meaningful for p in phrases):
+            return td
+
+        matched = [p for p in phrases if set(p) <= raw_tokens]
+        if not matched:
+            continue
+        covered = set().union(*matched) & meaningful
+        coverage = len(covered) / len(meaningful)
+        if coverage <= _MIN_COVERAGE:
+            continue
+        score = (coverage, max(len(p) for p in matched))
+        if score > best_score:
+            best_def, best_score = td, score
+
+    return best_def
 
 
 def _compute_status(value: float, ref_min: Optional[float], ref_max: Optional[float]) -> str:
@@ -65,24 +138,7 @@ def normalize_and_score(parsed_result: Dict, test_definitions: List[Dict]) -> Di
     confidence: float = parsed_result.get("extraction_confidence", 1.0)
 
     # ── Step 1: find matching test definition ──────────────────────────────
-    matched_def: Optional[Dict] = None
-
-    # Exact match first
-    for td in test_definitions:
-        canonical = td.get("canonical_name", "").lower()
-        display = td.get("display_name", "").lower()
-        if canonical == raw_name or display == raw_name:
-            matched_def = td
-            break
-
-    # Token overlap fallback
-    if matched_def is None:
-        for td in test_definitions:
-            canonical = td.get("canonical_name", "")
-            display = td.get("display_name", "")
-            if _token_match(raw_name, canonical, display):
-                matched_def = td
-                break
+    matched_def = _match_definition(raw_name, test_definitions)
 
     # ── Step 2: fill missing reference range from fallback table ──────────
     if (ref_min is None or ref_max is None) and matched_def:

@@ -75,3 +75,59 @@ class TestNormalizeAndScore:
         result = normalize_and_score(parsed, self.FAKE_TEST_DEFS)
         # Fallback ranges exist for hemoglobin, so status should not be UNKNOWN
         assert result["status"] != "UNKNOWN"
+
+
+class TestDefinitionMatching:
+    """Matching against the definitions seeded by data/seed_test_definitions.py."""
+
+    SEEDED_DEFS = [
+        {"id": "hb",   "canonical_name": "hemoglobin",        "display_name": "Hemoglobin"},
+        {"id": "wbc",  "canonical_name": "wbc",               "display_name": "White Blood Cell Count (WBC)"},
+        {"id": "plt",  "canonical_name": "platelets",         "display_name": "Platelet Count"},
+        {"id": "tc",   "canonical_name": "total_cholesterol", "display_name": "Total Cholesterol"},
+        {"id": "ldl",  "canonical_name": "ldl_cholesterol",   "display_name": "LDL Cholesterol"},
+        {"id": "hdl",  "canonical_name": "hdl_cholesterol",   "display_name": "HDL Cholesterol"},
+        {"id": "tsh",  "canonical_name": "tsh",               "display_name": "TSH (Thyroid Stimulating Hormone)"},
+        {"id": "ft3",  "canonical_name": "free_t3",           "display_name": "Free T3 (Triiodothyronine)"},
+        {"id": "ft4",  "canonical_name": "free_t4",           "display_name": "Free T4 (Thyroxine)"},
+    ]
+
+    def _match(self, name):
+        parsed = {"test_name_raw": name, "value": 50.0, "extraction_confidence": 0.9}
+        return normalize_and_score(parsed, self.SEEDED_DEFS)["test_definition_id"]
+
+    @pytest.mark.parametrize("name, expected", [
+        ("HDL Cholesterol", "hdl"),
+        ("Cholesterol HDL Direct", "hdl"),
+        ("LDL Cholesterol", "ldl"),
+        ("LDL", "ldl"),
+        ("Total Cholesterol", "tc"),
+        ("Cholesterol, Total", "tc"),
+        ("Serum Cholesterol", "tc"),
+        ("Free T4", "ft4"),
+        ("Free T3", "ft3"),
+        ("FT4", "ft4"),
+        ("TSH", "tsh"),
+        ("Thyroid Stimulating Hormone", "tsh"),
+        ("WBC", "wbc"),
+        ("Total Leucocyte Count", "wbc"),
+        ("Hb", "hb"),
+        ("Haemoglobin", "hb"),
+        ("Platelet Count", "plt"),
+    ])
+    def test_matches_expected_definition(self, name, expected):
+        assert self._match(name) == expected
+
+    @pytest.mark.parametrize("name", [
+        "Hemoglobin A1c",   # HbA1c is not plain hemoglobin
+        "T3",               # total T3 is not free T3
+        "Vitamin D",
+    ])
+    def test_does_not_force_a_wrong_match(self, name):
+        assert self._match(name) is None
+
+    def test_lipid_fallback_range_uses_seeded_canonical_name(self):
+        parsed = {"test_name_raw": "HDL Cholesterol", "value": 30.0, "extraction_confidence": 0.6}
+        result = normalize_and_score(parsed, self.SEEDED_DEFS)
+        assert (result["reference_min"], result["reference_max"]) == (40.0, 60.0)
+        assert result["status"] == "LOW"

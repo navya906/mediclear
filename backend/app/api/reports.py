@@ -13,7 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 
-from app.database.client import get_supabase
+from app.database.client import fetch_one, get_supabase
 from app.schemas.report import ReportResponse
 from app.schemas.result import LabResultResponse
 from app.services.report_service import process_report_background, validate_file
@@ -24,10 +24,10 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 def _get_patient_id(auth_user_id: str) -> str:
     supabase = get_supabase()
-    result = supabase.table("patients").select("id").eq("auth_user_id", auth_user_id).single().execute()
-    if not result.data:
+    patient = fetch_one(supabase.table("patients").select("id").eq("auth_user_id", auth_user_id))
+    if not patient:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found.")
-    return result.data["id"]
+    return patient["id"]
 
 
 @router.post("/upload", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
@@ -98,17 +98,15 @@ def list_reports(user_id: str = Depends(get_current_user)):
 def get_report(report_id: UUID, user_id: str = Depends(get_current_user)):
     patient_id = _get_patient_id(user_id)
     supabase = get_supabase()
-    result = (
+    report = fetch_one(
         supabase.table("reports")
         .select("*")
         .eq("id", str(report_id))
         .eq("patient_id", patient_id)
-        .single()
-        .execute()
     )
-    if not result.data:
+    if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
-    return ReportResponse(**result.data)
+    return ReportResponse(**report)
 
 
 @router.get("/{report_id}/results", response_model=List[LabResultResponse])
@@ -116,15 +114,13 @@ def get_report_results(report_id: UUID, user_id: str = Depends(get_current_user)
     patient_id = _get_patient_id(user_id)
     supabase = get_supabase()
 
-    report_res = (
+    report = fetch_one(
         supabase.table("reports")
         .select("id")
         .eq("id", str(report_id))
         .eq("patient_id", patient_id)
-        .single()
-        .execute()
     )
-    if not report_res.data:
+    if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
 
     result = (

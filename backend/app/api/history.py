@@ -19,46 +19,10 @@ from app.schemas.history import (
     HistoryResponse,
     HistoryUpdate,
 )
+from app.services.history_service import assert_owns_entry, get_patient_id
 from app.utils.auth import get_current_user
 
 router = APIRouter(prefix="/history", tags=["history"])
-
-
-def _get_patient_id(auth_user_id: str) -> str:
-    """Look up the patients.id for the given auth_user_id."""
-    supabase = get_supabase()
-    result = (
-        supabase.table("patients")
-        .select("id")
-        .eq("auth_user_id", auth_user_id)
-        .single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient profile not found. Please complete registration.",
-        )
-    return result.data["id"]
-
-
-def _assert_owns_entry(entry_id: str, patient_id: str) -> dict:
-    """Fetch a history entry and verify it belongs to the current patient."""
-    supabase = get_supabase()
-    result = (
-        supabase.table("patient_history")
-        .select("*")
-        .eq("id", entry_id)
-        .eq("patient_id", patient_id)
-        .single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="History entry not found.",
-        )
-    return result.data
 
 
 @router.post(
@@ -71,7 +35,7 @@ def add_history(
     body: HistoryCreate,
     user_id: str = Depends(get_current_user),
 ):
-    patient_id = _get_patient_id(user_id)
+    patient_id = get_patient_id(user_id)
     supabase = get_supabase()
 
     payload = body.model_dump(exclude_none=True)
@@ -105,7 +69,7 @@ def list_history(
     ),
     user_id: str = Depends(get_current_user),
 ):
-    patient_id = _get_patient_id(user_id)
+    patient_id = get_patient_id(user_id)
     supabase = get_supabase()
 
     query = (
@@ -133,8 +97,8 @@ def update_history(
     body: HistoryUpdate,
     user_id: str = Depends(get_current_user),
 ):
-    patient_id = _get_patient_id(user_id)
-    _assert_owns_entry(str(entry_id), patient_id)
+    patient_id = get_patient_id(user_id)
+    assert_owns_entry(str(entry_id), patient_id)
 
     updates = body.model_dump(exclude_none=True)
     if not updates:
@@ -173,8 +137,8 @@ def delete_history(
     entry_id: UUID,
     user_id: str = Depends(get_current_user),
 ):
-    patient_id = _get_patient_id(user_id)
-    _assert_owns_entry(str(entry_id), patient_id)
+    patient_id = get_patient_id(user_id)
+    assert_owns_entry(str(entry_id), patient_id)
 
     supabase = get_supabase()
     supabase.table("patient_history").delete().eq("id", str(entry_id)).execute()

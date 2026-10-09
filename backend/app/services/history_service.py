@@ -9,45 +9,41 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 
-from app.database.client import get_supabase
+from app.database.client import fetch_one, get_supabase
 from app.schemas.history import HistoryCreate, HistoryResponse, HistoryUpdate
 
 
 def get_patient_id(auth_user_id: str) -> str:
     """Resolve the patients.id for the given Supabase auth user ID."""
     supabase = get_supabase()
-    result = (
+    patient = fetch_one(
         supabase.table("patients")
         .select("id")
         .eq("auth_user_id", auth_user_id)
-        .single()
-        .execute()
     )
-    if not result.data:
+    if not patient:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Patient profile not found. Please complete registration.",
         )
-    return result.data["id"]
+    return patient["id"]
 
 
 def assert_owns_entry(entry_id: str, patient_id: str) -> dict:
     """Fetch a history entry and verify it belongs to the current patient."""
     supabase = get_supabase()
-    result = (
+    entry = fetch_one(
         supabase.table("patient_history")
         .select("*")
         .eq("id", entry_id)
         .eq("patient_id", patient_id)
-        .single()
-        .execute()
     )
-    if not result.data:
+    if not entry:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="History entry not found.",
         )
-    return result.data
+    return entry
 
 
 def create_entry(body: HistoryCreate, patient_id: str) -> HistoryResponse:

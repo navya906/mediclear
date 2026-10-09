@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.ai.generator import generate_explanation
-from app.database.client import get_supabase
+from app.database.client import fetch_one, get_supabase
 from app.schemas.explanation import ExplanationResponse
 from app.utils.auth import get_current_user
 
@@ -20,10 +20,10 @@ router = APIRouter(prefix="/results", tags=["results"])
 
 def _get_patient_id(auth_user_id: str) -> str:
     supabase = get_supabase()
-    result = supabase.table("patients").select("id").eq("auth_user_id", auth_user_id).single().execute()
-    if not result.data:
+    patient = fetch_one(supabase.table("patients").select("id").eq("auth_user_id", auth_user_id))
+    if not patient:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found.")
-    return result.data["id"]
+    return patient["id"]
 
 
 @router.post("/{result_id}/explain", response_model=ExplanationResponse)
@@ -32,11 +32,10 @@ def explain_result(result_id: UUID, user_id: str = Depends(get_current_user)):
     supabase = get_supabase()
 
     # 1. Fetch the lab result, joined with report (to verify ownership) and test_def
-    result_res = supabase.table("lab_results").select("*, reports(*), test_definitions(*)").eq("id", str(result_id)).single().execute()
-    if not result_res.data:
+    result_data = fetch_one(supabase.table("lab_results").select("*, reports(*), test_definitions(*)").eq("id", str(result_id)))
+    if not result_data:
         raise HTTPException(status_code=404, detail="Result not found.")
-    
-    result_data = result_res.data
+
     report_data = result_data.get("reports")
     test_def = result_data.get("test_definitions") or {}
 
@@ -73,12 +72,14 @@ def get_explanation(result_id: UUID, user_id: str = Depends(get_current_user)):
     supabase = get_supabase()
 
     # Verify ownership via report
-    result_res = supabase.table("lab_results").select("reports(patient_id)").eq("id", str(result_id)).single().execute()
-    if not result_res.data or result_res.data.get("reports", {}).get("patient_id") != patient_id:
+    result_data = fetch_one(supabase.table("lab_results").select("reports(patient_id)").eq("id", str(result_id)))
+    if not result_data:
+        raise HTTPException(status_code=404, detail="Result not found.")
+    if (result_data.get("reports") or {}).get("patient_id") != patient_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this result.")
 
-    existing = supabase.table("explanations").select("*").eq("lab_result_id", str(result_id)).single().execute()
-    if not existing.data:
+    existing = fetch_one(supabase.table("explanations").select("*").eq("lab_result_id", str(result_id)))
+    if not existing:
         raise HTTPException(status_code=404, detail="Explanation not found.")
 
-    return ExplanationResponse(**existing.data)
+    return ExplanationResponse(**existing)

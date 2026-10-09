@@ -27,8 +27,8 @@ FALLBACK_RANGES: dict[str, Tuple[float, float, str]] = {
 
     # ── Lipid Profile ────────────────────────────────────────────────────────
     "total_cholesterol":        (0.0,  200.0, "mg/dL"),
-    "ldl":                      (0.0,  100.0, "mg/dL"),
-    "hdl":                      (40.0, 60.0,  "mg/dL"),
+    "ldl_cholesterol":          (0.0,  100.0, "mg/dL"),
+    "hdl_cholesterol":          (40.0, 60.0,  "mg/dL"),
     "triglycerides":            (0.0,  150.0, "mg/dL"),
 
     # ── Thyroid Profile ──────────────────────────────────────────────────────

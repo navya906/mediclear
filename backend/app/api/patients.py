@@ -7,7 +7,7 @@ PATCH /patients/me  — update date_of_birth and/or sex
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.database.client import get_supabase
+from app.database.client import fetch_one, get_supabase
 from app.schemas.patient import PatientResponse, PatientUpdate
 from app.utils.auth import get_current_user
 
@@ -17,19 +17,17 @@ router = APIRouter(prefix="/patients", tags=["patients"])
 def _get_patient_by_auth_user(auth_user_id: str) -> dict:
     """Fetch the patients row for the given auth_user_id. Raises 404 if not found."""
     supabase = get_supabase()
-    result = (
+    patient = fetch_one(
         supabase.table("patients")
         .select("*")
         .eq("auth_user_id", auth_user_id)
-        .single()
-        .execute()
     )
-    if not result.data:
+    if not patient:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Patient profile not found.",
         )
-    return result.data
+    return patient
 
 
 @router.get(
@@ -87,32 +85,29 @@ def get_patient_trends(
     user_id: str = Depends(get_current_user)
 ):
     supabase = get_supabase()
-    
-    # Get patient ID
-    patient_res = supabase.table("patients").select("id").eq("auth_user_id", user_id).single().execute()
-    if not patient_res.data:
-        raise HTTPException(status_code=404, detail="Patient profile not found.")
-    patient_id = patient_res.data["id"]
+    patient_id = _get_patient_by_auth_user(user_id)["id"]
 
     # Fetch lab results joined with reports for the test definition canonical name
-    # We filter by test canonical_name and order by report created_at
     query = supabase.table("lab_results")\
-        .select("value, reports!inner(created_at), test_definitions!inner(canonical_name)")\
+        .select("value, reports!inner(report_date, created_at), test_definitions!inner(canonical_name)")\
         .eq("reports.patient_id", patient_id)\
         .eq("test_definitions.canonical_name", test_name)\
-        .order("reports.created_at", asc=True)\
         .execute()
 
     results = query.data or []
-    
-    # Format the response for recharts (needs date and value)
+
+    # Format the response for the chart (needs date and value).
+    # Prefer the date printed on the report; fall back to the upload date.
     trends = []
     for r in results:
-        report_data = r.get("reports", {})
-        if report_data and r.get("value") is not None:
+        report_data = r.get("reports") or {}
+        report_date = report_data.get("report_date") or report_data.get("created_at")
+        if report_date and r.get("value") is not None:
             trends.append({
-                "date": report_data.get("created_at")[:10], # YYYY-MM-DD
+                "date": report_date[:10],  # YYYY-MM-DD
                 "value": r["value"]
             })
-            
+
+    # PostgREST can't order parent rows by an embedded column here, so sort in Python
+    trends.sort(key=lambda t: t["date"])
     return trends
