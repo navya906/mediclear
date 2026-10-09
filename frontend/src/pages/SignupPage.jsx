@@ -37,7 +37,8 @@ export default function SignupPage() {
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.detail || 'Registration failed.')
+        // FastAPI validation errors arrive as a list of objects, not a string
+        setError(typeof data.detail === 'string' ? data.detail : 'Registration failed. Please check your details.')
       } else {
         setSuccess(true)
         setTimeout(() => navigate('/login'), 2000)

@@ -22,7 +22,11 @@ export default function LoginPage() {
     setLoading(false)
 
     if (authError) {
-      setError(authError.message)
+      if (authError.code === 'email_not_confirmed' || /not confirmed/i.test(authError.message)) {
+        setError('Please confirm your email first. Check your inbox for the confirmation link.')
+      } else {
+        setError(authError.message)
+      }
     } else {
       navigate('/profile')
     }
