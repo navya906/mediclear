@@ -100,13 +100,39 @@ def _match_definition(raw_name: str, test_definitions: List[Dict]) -> Optional[D
     return best_def
 
 
+# Spellings of the same unit, after _unit_key() normalisation
+_UNIT_EQUIVALENTS = [
+    {"k/ul", "10^3/ul", "x10^3/ul", "10³/ul", "x10³/ul", "thou/ul", "10^3/cumm", "thou/cumm"},
+    {"m/ul", "10^6/ul", "x10^6/ul", "10⁶/ul", "x10⁶/ul", "mill/ul", "mill/cumm", "million/cumm"},
+    {"miu/l", "uiu/ml"},
+]
+
+
+def _unit_key(unit: str) -> str:
+    return re.sub(r"\s+", "", unit.lower().replace("µ", "u").replace("μ", "u").replace("×", "x"))
+
+
+def _units_compatible(parsed_unit: Optional[str], fallback_unit: str) -> bool:
+    """True if the parsed unit is missing or means the same as the fallback unit."""
+    if not parsed_unit:
+        return True
+    a, b = _unit_key(parsed_unit), _unit_key(fallback_unit)
+    return a == b or any(a in group and b in group for group in _UNIT_EQUIVALENTS)
+
+
 def _compute_status(value: float, ref_min: Optional[float], ref_max: Optional[float]) -> str:
     """
     Compute status string from value and reference bounds.
     Returns: CRITICAL | HIGH | LOW | NORMAL | UNKNOWN
     """
-    if value is None or ref_min is None or ref_max is None:
+    if value is None or (ref_min is None and ref_max is None):
         return "UNKNOWN"
+
+    # One-sided ranges ("< 200", "> 40") have no width, so no CRITICAL level
+    if ref_min is None:
+        return "HIGH" if value > ref_max else "NORMAL"
+    if ref_max is None:
+        return "LOW" if value < ref_min else "NORMAL"
 
     range_width = ref_max - ref_min
     critical_margin = range_width * CRITICAL_MULTIPLIER
@@ -141,17 +167,19 @@ def normalize_and_score(parsed_result: Dict, test_definitions: List[Dict]) -> Di
     matched_def = _match_definition(raw_name, test_definitions)
 
     # ── Step 2: fill missing reference range from fallback table ──────────
-    if (ref_min is None or ref_max is None) and matched_def:
+    # Only when the report gave no range at all, and only if the units agree:
+    # a fallback in K/uL is meaningless for a count reported in /cumm.
+    if ref_min is None and ref_max is None and matched_def:
         canonical_name = matched_def.get("canonical_name", "")
         fallback = get_fallback_range(canonical_name)
-        if fallback:
+        if fallback and _units_compatible(parsed_result.get("unit"), fallback[2]):
             ref_min, ref_max, fallback_unit = fallback
             # Only overwrite unit if the parsed one is empty
             if not parsed_result.get("unit"):
                 parsed_result["unit"] = fallback_unit
             parsed_result["reference_min"] = ref_min
             parsed_result["reference_max"] = ref_max
-            parsed_result["reference_text"] = f"{ref_min} - {ref_max}"
+            parsed_result["reference_text"] = f"{ref_min:g} - {ref_max:g}"
 
     # ── Step 3: compute status ─────────────────────────────────────────────
     value = parsed_result.get("value")

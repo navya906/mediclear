@@ -131,3 +131,41 @@ class TestDefinitionMatching:
         result = normalize_and_score(parsed, self.SEEDED_DEFS)
         assert (result["reference_min"], result["reference_max"]) == (40.0, 60.0)
         assert result["status"] == "LOW"
+
+
+class TestOneSidedAndUnits:
+
+    @pytest.mark.parametrize("value, ref_min, ref_max, expected", [
+        (180, None, 200, "NORMAL"),
+        (212, None, 200, "HIGH"),
+        (48, 40, None, "NORMAL"),
+        (35, 40, None, "LOW"),
+    ])
+    def test_one_sided_status(self, value, ref_min, ref_max, expected):
+        assert _compute_status(value, ref_min, ref_max) == expected
+
+    DEFS = [{"id": "plt", "canonical_name": "platelets", "display_name": "Platelet Count"},
+            {"id": "tc", "canonical_name": "total_cholesterol", "display_name": "Total Cholesterol"}]
+
+    def test_one_sided_report_range_not_replaced_by_fallback(self):
+        parsed = {"test_name_raw": "Total Cholesterol", "value": 212.0, "unit": "mg/dL",
+                  "reference_min": None, "reference_max": 200.0, "reference_text": "< 200",
+                  "extraction_confidence": 0.85}
+        result = normalize_and_score(parsed, self.DEFS)
+        assert (result["reference_min"], result["reference_max"]) == (None, 200.0)
+        assert result["status"] == "HIGH"
+
+    def test_fallback_skipped_when_units_differ(self):
+        # 2,10,000 /cumm must not be compared against the 150-400 K/uL fallback
+        parsed = {"test_name_raw": "Platelet Count", "value": 210000.0, "unit": "/cumm",
+                  "extraction_confidence": 0.6}
+        result = normalize_and_score(parsed, self.DEFS)
+        assert result["status"] == "UNKNOWN"
+        assert result["needs_review"] is True
+
+    def test_fallback_used_for_equivalent_unit(self):
+        parsed = {"test_name_raw": "Platelet Count", "value": 210.0, "unit": "10^3/µL",
+                  "extraction_confidence": 0.6}
+        result = normalize_and_score(parsed, self.DEFS)
+        assert (result["reference_min"], result["reference_max"]) == (150.0, 400.0)
+        assert result["status"] == "NORMAL"
