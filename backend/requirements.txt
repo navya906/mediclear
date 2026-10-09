@@ -11,9 +11,6 @@ supabase==2.7.4
 # Validation
 pydantic[email]==2.8.2
 
-# JWT verification
-python-jose[cryptography]==3.3.0
-
 # Upload and Processing (Phase 2)
 python-multipart==0.0.9
 Pillow==10.4.0

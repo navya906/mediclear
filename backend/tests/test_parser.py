@@ -178,3 +178,52 @@ class TestRealWorldFormats:
         assert by_name["Platelet Count"]["value"] == 210000.0
         assert by_name["Cholesterol, Total"]["reference_max"] == 200.0
         assert by_name["TSH"]["unit"] == "µIU/mL"
+
+
+class TestExplanatoryText:
+    """Interpretation paragraphs printed under a result must not become results."""
+
+    VITAMIN_D_REPORT = (
+        "25-OH Vitamin D (Total)          22.4    ng/mL     30 - 100\n"
+        "Interpretation\n"
+        "Deficiency < 20 ng/mL, Insufficiency 20 - 30 ng/mL, Sufficiency 30 - 100 ng/mL, Toxicity > 100 ng/mL\n"
+        "Vitamin D promotes absorption of calcium and phosphorus and mineralization of bones and\n"
+        "teeth. Deficiency in children causes rickets and in adults leads to osteomalacia.\n"
+        "Optimal calcium absorption (34 ng/mL). Neuromuscular peak performance is associated with levels approximately\n"
+        "38 ng/mL. Vitamin D supplementation in elderly people reduces the risk of falls by 20 % in subjects\n"
+        "increasing mean baseline levels from 29 to 38 ng/mL.\n"
+        "Levels above 150 ng/mL are toxic.\n"
+        "Serum Calcium 9.4 mg/dL 8.5 - 10.5\n"
+        "S. Creatinine 0.9 mg/dL 0.6 - 1.1\n"
+    )
+
+    def test_only_real_results_kept(self):
+        names = [r["test_name_raw"] for r in parse_lab_text(self.VITAMIN_D_REPORT)]
+        assert names == ["25-OH Vitamin D (Total)", "Serum Calcium", "S. Creatinine"]
+
+    @pytest.mark.parametrize("line", [
+        "increasing mean baseline levels from 29 to 38 ng/mL.",
+        "Levels above 150 ng/mL are toxic.",
+        "Neuromuscular peak performance is associated with levels approximately 38 ng/mL.",
+        "Deficiency < 20 ng/mL, Insufficiency 20 - 30 ng/mL",
+        "Desirable < 200 mg/dL",
+        "Borderline 200 - 239 mg/dL",
+    ])
+    def test_sentences_and_legends_ignored(self, line):
+        assert parse_lab_text(line) == []
+
+    def test_english_word_is_not_a_unit(self):
+        assert parse_lab_text("Ferritin 29 to") == []
+
+    def test_trailing_comment_allowed_when_range_present(self):
+        r = parse_lab_text("HbA1c 6.8 % 4.0 - 5.6 Diabetic range as per ADA guidelines")[0]
+        assert (r["test_name_raw"], r["value"], r["reference_max"]) == ("HbA1c", 6.8, 5.6)
+
+    @pytest.mark.parametrize("line, name", [
+        ("25-OH Vitamin D (Total) 22.4 ng/mL 30 - 100", "25-OH Vitamin D (Total)"),
+        ("1,25-Dihydroxy Vitamin D 45 pg/mL 19.9 - 79.3", "1,25-Dihydroxy Vitamin D"),
+        ("Mean Corpuscular Hemoglobin Concentration (MCHC) 33.1 g/dL 32 - 36",
+         "Mean Corpuscular Hemoglobin Concentration (MCHC)"),
+    ])
+    def test_longer_real_names_kept(self, line, name):
+        assert parse_lab_text(line)[0]["test_name_raw"] == name

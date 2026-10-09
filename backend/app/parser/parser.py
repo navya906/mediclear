@@ -40,16 +40,20 @@ _REFERENCE = (
 )
 
 LINE_PATTERN = re.compile(
-    # Test name: starts with a letter, may contain digits ("Vitamin B12",
-    # "Free T3"), parentheses, commas ("Cholesterol, Total") etc.
-    r"(?P<name>[A-Za-z][\w ()/,.'+\-]*?[A-Za-z0-9)\]])"
+    # Test name: starts with a letter (or a numeric prefix like "25-OH"),
+    # may contain digits ("Vitamin B12", "Free T3"), parentheses, commas
+    # ("Cholesterol, Total") etc.
+    r"(?P<name>(?:\d+(?:,\d+)?-)?[A-Za-z][\w ()/,.'+\-]*?[A-Za-z0-9)\]])"
     r"\s*(?::\s*|\s+)"
     # Value, optionally prefixed by a comparator ("<70")
     rf"(?P<cmp>[<>]=?|≤|≥)?\s*(?P<value>{_NUM})(?![\w^/])"
     # Optional abnormal flag printed next to the value
     r"(?:\s+(?:\((?:H|L|High|Low)\)|H|L|High|Low|\*)(?=\s|$))?"
     rf"(?:\s+(?P<unit>{_UNIT}))?"
-    rf"(?:\s*[\(\[]?\s*(?:{_REFERENCE})\s*[\)\]]?)?",
+    rf"(?:\s*[\(\[]?\s*(?:{_REFERENCE})\s*[\)\]]?)?"
+    # Some reports print the unit after the range ("12.0 - 15.5 g/dL");
+    # a trailing H/L flag is not a unit
+    rf"(?:\s*(?!(?:H|L|High|Low)(?:\s|$))(?P<unit_after>{_UNIT}))?",
 )
 
 # Lines with dates or clock times are header/footer metadata, not results
@@ -62,7 +66,34 @@ _NOISE_WORDS = {
     "patient", "doctor", "dr", "ref", "referred", "reference", "unit", "units",
     "value", "range", "remarks", "page", "sample", "collected", "received",
     "registered", "phone", "mobile", "id", "uhid", "barcode", "years", "yrs",
+    # interpretation legends: "Deficiency < 20 ng/mL, Insufficiency 20 - 30 ..."
+    "deficiency", "insufficiency", "sufficiency", "toxicity", "desirable",
+    "borderline", "optimal", "interpretation", "note", "comment", "comments",
 }
+
+# Explanatory paragraphs contain numbers too ("levels from 29 to 38 ng/mL").
+# A real test name is short and doesn't end in a connecting word, and plain
+# English words are never units.
+_MAX_NAME_WORDS = 6
+_MAX_TRAILING_WORDS = 3
+_CONNECTING_WORDS = {
+    "a", "an", "the", "and", "or", "of", "to", "from", "in", "on", "at", "by",
+    "for", "with", "as", "than", "is", "are", "was", "were", "be", "been",
+    "above", "below", "over", "under", "between", "about", "around",
+    "approximately", "upto", "within", "if", "when", "which", "that",
+}
+_SENTENCE_BREAK = re.compile(r"[.;!?]\s+[A-Za-z]")
+
+
+# PDFs and OCR often use look-alike characters: non-breaking/thin spaces,
+# and soft hyphens, en/em dashes or minus signs in ranges like "12.0 – 15.5".
+_SPACE_CHARS = re.compile(r"[\u00a0\u2000-\u200a\u202f\u205f\u3000\t]")
+_DASH_CHARS = re.compile(r"[\u00ad\u2010-\u2015\u2212\ufe63\uff0d]")
+
+
+def normalise_text(text: str) -> str:
+    """Replace look-alike spaces and dashes with plain ASCII ones."""
+    return _DASH_CHARS.sub("-", _SPACE_CHARS.sub(" ", text))
 
 
 def _to_float(num: str) -> float:
@@ -76,6 +107,40 @@ def _is_noise(name: str) -> bool:
         return True
     tokens = set(re.split(r"[^a-z0-9]+", clean))
     return bool(tokens & _NOISE_WORDS)
+
+
+# Test method names printed beside or under a test name ("Hemoglobin
+# Colorimetric", "TSH ECLIA"). They say how a test was run, not which test.
+METHOD_WORDS = {
+    "colorimetric", "colorimetry", "photometric", "photometry", "spectrophotometric",
+    "spectrophotometry", "calculated", "derived", "direct", "indirect", "enzymatic",
+    "kinetic", "eclia", "clia", "cmia", "elisa", "ria", "hplc", "ise", "impedance",
+    "cytometry", "flow", "turbidimetric", "turbidimetry", "immunoturbidimetric",
+    "immunoturbidimetry", "chemiluminescence", "automated", "analyser", "analyzer",
+    "microscopy", "manual",
+}
+
+# Short words that follow a result line but are not part of its name
+_NOT_CONTINUATION = METHOD_WORDS | {
+    "comment", "comments", "note", "notes", "interpretation", "impression",
+    "advice", "method", "specimen", "normal", "abnormal", "borderline",
+    "desirable", "optimal", "end",
+}
+_CONTINUATION = re.compile(r"[A-Za-z(][A-Za-z ()/,.'\-]*")
+
+
+def _is_name_continuation(line: str) -> bool:
+    """
+    True if a line looks like the wrapped second half of a test name:
+    a few words of plain text with no numbers or colon. ALL-CAPS lines are
+    section headings ("LIPID PROFILE") unless bracketed, like "(PCV)".
+    """
+    if len(line) > 30 or len(line.split()) > 3 or not _CONTINUATION.fullmatch(line):
+        return False
+    if line.isupper() and not (line.startswith("(") and line.endswith(")")):
+        return False
+    tokens = set(re.split(r"[^a-z]+", line.lower()))
+    return not (tokens & (_NOISE_WORDS | _NOT_CONTINUATION))
 
 
 def _reference(m: re.Match) -> Tuple[Optional[float], Optional[float], Optional[str]]:
@@ -92,6 +157,24 @@ def _reference(m: re.Match) -> Tuple[Optional[float], Optional[float], Optional[
     return None, None, None
 
 
+def _looks_like_prose(name: str, rest_of_line: str, has_range: bool) -> bool:
+    """True if a matched "result" is really part of a sentence."""
+    words = name.split()
+    if len(words) > _MAX_NAME_WORDS:
+        return True
+    # "S. Creatinine" is fine; "...(34 ng/mL). Neuromuscular peak ..." is not
+    if len(words) > 3 and _SENTENCE_BREAK.search(name):
+        return True
+    if words[-1].lower().strip(".,;") in _CONNECTING_WORDS:
+        return True
+    # Without a reference range, a row may end with a method or flag but not
+    # with more sentence. (With a range, a trailing comment is allowed.)
+    if has_range:
+        return False
+    trailing = [w for w in rest_of_line.split() if w.isalpha()]
+    return len(trailing) > _MAX_TRAILING_WORDS
+
+
 def _parse_line(line: str) -> Optional[Dict]:
     if _DATE_OR_TIME.search(line):
         return None
@@ -101,11 +184,14 @@ def _parse_line(line: str) -> Optional[Dict]:
         return None
 
     name = re.sub(r"\s+", " ", m.group("name")).strip(" ,.-")
-    if _is_noise(name):
+    ref_min, ref_max, ref_text = _reference(m)
+    if _is_noise(name) or _looks_like_prose(name, line[m.end():], ref_text is not None):
         return None
 
-    unit = m.group("unit")
-    ref_min, ref_max, ref_text = _reference(m)
+    # Only trust a unit after the range when the range itself was found
+    unit = m.group("unit") or (m.group("unit_after") if ref_text else None)
+    if unit and unit.lower().rstrip(".") in _CONNECTING_WORDS:
+        unit = None  # "from 29 to 38": "to" is not a unit
     if not unit and ref_text is None:
         return None
 
@@ -138,15 +224,27 @@ def parse_lab_text(raw_text: str) -> List[Dict]:
     """
     results: List[Dict] = []
     seen_names: set = set()
+    previous: Optional[Dict] = None  # result parsed from the previous line
 
-    for line in raw_text.splitlines():
+    for line in normalise_text(raw_text).splitlines():
         line = line.strip()
-        if len(line) < 4:
+        if not line:
             continue
 
-        result = _parse_line(line)
+        # A long test name wrapped onto the next line: "Total Leucocyte" / "Count"
+        if previous is not None and _is_name_continuation(line):
+            seen_names.discard(previous["test_name_raw"].lower())
+            previous["test_name_raw"] += " " + line
+            seen_names.add(previous["test_name_raw"].lower())
+            previous = None
+            continue
+
+        result = _parse_line(line) if len(line) >= 4 else None
         if result and result["test_name_raw"].lower() not in seen_names:
             seen_names.add(result["test_name_raw"].lower())
             results.append(result)
+            previous = result
+        else:
+            previous = None
 
     return results

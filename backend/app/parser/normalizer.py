@@ -12,6 +12,7 @@ Matching strategy (in order):
 import re
 from typing import Dict, List, Optional
 
+from app.parser.parser import METHOD_WORDS
 from app.parser.reference_ranges import get_fallback_range
 
 # How far outside the range a value must be (as a fraction of the range width)
@@ -36,9 +37,8 @@ ALIASES: Dict[str, List[str]] = {
 }
 
 # Words that describe the sample or method rather than which test it is.
-_FILLER_TOKENS = {
-    "serum", "plasma", "blood", "whole", "level", "levels", "test",
-    "calculated", "direct", "s", "of", "the",
+_FILLER_TOKENS = METHOD_WORDS | {
+    "serum", "plasma", "blood", "whole", "level", "levels", "test", "s", "of", "the",
 }
 
 # A definition must account for MORE than this fraction of the raw name's
@@ -63,7 +63,15 @@ def _phrases_for(td: Dict) -> List[List[str]]:
     return [p for p in (_tokens(t) for t in texts) if p]
 
 
-def _match_definition(raw_name: str, test_definitions: List[Dict]) -> Optional[Dict]:
+# Words that turn a name into a different test ("Non-HDL Cholesterol")
+_NEGATING_TOKENS = {"non"}
+
+
+# A capital letter split from the rest of its word by PDF kerning: "T otal"
+_SPLIT_CAPITAL = re.compile(r"\b([A-Z]) (?=[a-z]{2,})")
+
+
+def match_definition(raw_name: str, test_definitions: List[Dict]) -> Optional[Dict]:
     """
     Pick the test definition that best explains raw_name.
 
@@ -71,7 +79,19 @@ def _match_definition(raw_name: str, test_definitions: List[Dict]) -> Optional[D
     matching definitions the one with the longest matched phrase wins, so
     "HDL Cholesterol" prefers hdl_cholesterol over the bare "cholesterol"
     alias of total_cholesterol.
+
+    If nothing matches, retries with kerning splits rejoined
+    ("T otal Cholesterol" -> "Total Cholesterol").
     """
+    matched = _match_tokens(raw_name, test_definitions)
+    if matched is None:
+        rejoined = _SPLIT_CAPITAL.sub(r"\1", raw_name)
+        if rejoined != raw_name:
+            matched = _match_tokens(rejoined, test_definitions)
+    return matched
+
+
+def _match_tokens(raw_name: str, test_definitions: List[Dict]) -> Optional[Dict]:
     raw_tokens = set(_tokens(raw_name))
     meaningful = raw_tokens - _FILLER_TOKENS
     if not meaningful:
@@ -88,6 +108,9 @@ def _match_definition(raw_name: str, test_definitions: List[Dict]) -> Optional[D
 
         matched = [p for p in phrases if set(p) <= raw_tokens]
         if not matched:
+            continue
+        # "Non-HDL Cholesterol" is a different test from "HDL Cholesterol"
+        if _NEGATING_TOKENS & raw_tokens and not any(_NEGATING_TOKENS & set(p) for p in phrases):
             continue
         covered = set().union(*matched) & meaningful
         coverage = len(covered) / len(meaningful)
@@ -163,13 +186,13 @@ def normalize_and_score(
       - fills missing reference range from fallback table if possible,
         using the patient's sex for sex-dependent tests
     """
-    raw_name = parsed_result.get("test_name_raw", "").lower()
+    raw_name = parsed_result.get("test_name_raw", "")
     ref_min: Optional[float] = parsed_result.get("reference_min")
     ref_max: Optional[float] = parsed_result.get("reference_max")
     confidence: float = parsed_result.get("extraction_confidence", 1.0)
 
     # ── Step 1: find matching test definition ──────────────────────────────
-    matched_def = _match_definition(raw_name, test_definitions)
+    matched_def = match_definition(raw_name, test_definitions)
 
     # ── Step 2: fill missing reference range from fallback table ──────────
     # Only when the report gave no range at all, and only if the units agree:

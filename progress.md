@@ -1,6 +1,6 @@
 # MediClear Progress Tracker
 
-_Last updated: 2026-09-24_
+_Last updated: 2026-10-09_
 
 ---
 
@@ -108,10 +108,10 @@ _Last updated: 2026-09-24_
 - [x] Fill `app/services/report_service.py` — full background pipeline with auto-explanation batch and logging
 - [x] Fill `app/services/history_service.py` — history CRUD service layer extracted from router
 - [x] Add `CRITICAL` status for values > 1.5× the reference range width outside the boundary
-- [x] Add `needs_review` flag for extractions with confidence < 0.75 or UNKNOWN status
-- [x] Auto-generate AI explanations for all results in batch after report processing completes
+- [x] Add `needs_review` flag for extractions with confidence < 0.75 or UNKNOWN status _(computed but discarded until the gap fixes below)_
+- [x] Auto-generate AI explanations for all results in batch after report processing completes _(saving failed on every insert until the gap fixes below)_
 - [x] Add input validation: `validate_file()` rejects files > 10 MB and unsupported types
-- [x] Configure CORS `allow_origins` from `CORS_ALLOW_ORIGINS` env variable
+- [x] Configure CORS `allow_origins` from `CORS_ALLOW_ORIGINS` env variable _(the variable was read but ignored until the gap fixes below)_
 - [x] Add startup env-var validation — `main.py` exits with clear error if required keys are missing
 - [x] Write unit tests: `tests/test_parser.py`, `tests/test_normalizer.py`
 
@@ -138,6 +138,54 @@ _Last updated: 2026-09-24_
 - [x] Update `README.md` — Docker, pytest, full env variable reference table
 
 
+
+---
+
+## Gap Fixes (2026-10-09) ✅ COMPLETED
+
+A review of the repo found several features marked complete above that did not work. Fixed on `navya-dev`:
+
+**Broken features**
+- [x] Trends endpoint crashed on every call (invalid `order(asc=True)`), so dashboard charts were always empty
+- [x] Missing rows returned HTTP 500 instead of 404 (`.single()` raises on zero rows); replaced with `fetch_one()`
+- [x] "HDL Cholesterol" was matched to Total Cholesterol; matcher now prefers the most specific name and knows common abbreviations (Hb, TLC, FT4, PCV…)
+- [x] LDL/HDL keys didn't match the seeded names (`ldl_cholesterol` / `hdl_cholesterol`), so they never got fallback ranges or trends
+- [x] CORS ignored `CORS_ALLOW_ORIGINS`
+- [x] AI explanations failed to save (UUID not JSON-serialisable), and the saved model name was a Python object repr
+- [x] Report details page never refreshed while processing (polling read a stale state value)
+
+**Registration**
+- [x] Duplicate email returns 409 instead of 500
+- [x] Auth user is deleted if the patient profile can't be created
+- [x] Server-side 8-character password minimum; friendly "confirm your email" message on login
+
+**Parser & scoring**
+- [x] Handles `1,50,000`, units like `10^3/uL`, `<70` values, H/L flags, `13 to 17` and one-sided ranges (`< 200`, `> 40`)
+- [x] Skips date, time and patient-metadata lines
+- [x] Fallback ranges only used when units match, and sex-specific for Hb, Hct, RBC, creatinine, uric acid, ferritin
+
+**Review flag & AI**
+- [x] `needs_review` saved per result (migration `data/migrations/001_lab_results_needs_review.sql`); report status becomes `needs_review` when any result is uncertain, with "Check" badges in the UI
+- [x] Patient age and sex included in the AI prompt (prompt v3)
+- [x] Safety filter covers every explanation field with targeted patterns
+- [x] Explanations left by an AI error, or created before an API key was set, are regenerated on next request
+
+**Docs & config**
+- [x] `.env.example` uses the variable names the code actually reads
+- [x] README tech stack, env reference and test instructions corrected; migrations documented
+- [x] Removed unused `python-jose`; added `requirements-dev.txt` (pytest)
+- [x] 118 backend tests (was 18)
+
+**Still open**
+- [ ] Run migration `001_lab_results_needs_review.sql` on the shared Supabase project
+- [ ] Seed test definitions for ALT, AST, creatinine, fasting glucose and HbA1c (they're in the trends dropdown but never match)
+- [ ] Show auto-generated explanations on the report page without clicking "Explain"
+- [ ] Uploads: stream size check, sanitise file names, verify file content, clean up storage if the DB insert fails
+- [ ] Recover reports stuck in `processing` after a server restart; add retry and delete endpoints
+- [ ] Signed URLs to view the original report file
+- [ ] Remove the unused `recharts` dependency from `frontend/package.json`
+- [ ] `.gitignore` ignores all `*.pdf` / `*.png` / `*.jpg`, so sample reports can't be committed as test fixtures
+- [ ] Tests for OCR, the remaining API endpoints and the frontend
 
 ---
 

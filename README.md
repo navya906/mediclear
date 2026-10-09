@@ -13,7 +13,7 @@ MediClear is a healthcare application that helps patients understand laboratory 
 - **Build Tool & Dev Server:** [Vite 5](https://vitejs.dev/)
 - **Routing:** [React Router v6](https://reactrouter.com/) (`react-router-dom`)
 - **Styling:** [Tailwind CSS v4](https://tailwindcss.com/) & Vanilla CSS with CSS Variables (Modern Glassmorphic UI)
-- **Data Visualization & Charts:** [Recharts](https://recharts.org/) (Interactive historical trend charts for biomarkers)
+- **Data Visualization & Charts:** Hand-built SVG line chart with hover tooltips for biomarker trends (no charting library)
 - **Client SDK:** [@supabase/supabase-js](https://supabase.com/docs/reference/javascript/introduction) (Auth state management & storage integration)
 
 ### Backend
@@ -21,7 +21,7 @@ MediClear is a healthcare application that helps patients understand laboratory 
 - **ASGI Server:** [Uvicorn](https://www.uvicorn.org/) (Standard with uvloop)
 - **Data Validation & Schemas:** [Pydantic v2](https://docs.pydantic.dev/) (Email & schema validation)
 - **Database & Auth Client:** [Supabase Python SDK](https://supabase.com/docs/reference/python/introduction) (PostgREST & Service Role integration)
-- **Security & Tokens:** [python-jose](https://python-jose.readthedocs.io/) (JWT verification) & [passlib](https://passlib.readthedocs.io/)
+- **Security & Tokens:** Supabase JWTs, verified on each request through Supabase Auth
 - **File Uploads:** `python-multipart`
 
 ### Document Processing & OCR
@@ -32,7 +32,7 @@ MediClear is a healthcare application that helps patients understand laboratory 
 - **Medical Normalizer:** Automated biomarker matching with reference range validation and status classification (`LOW`, `NORMAL`, `HIGH`, `CRITICAL`) for CBC, Lipid, and Thyroid profiles
 
 ### Artificial Intelligence & NLP
-- **LLM Client:** [OpenAI Python SDK](https://github.com/openai/openai-python) — Configurable for OpenAI, Groq (`llama-3.3-70b-versatile`), or any OpenAI-compatible provider
+- **LLM Client:** [OpenAI Python SDK](https://github.com/openai/openai-python) — Configurable for OpenAI, Groq (`openai/gpt-oss-120b`), or any OpenAI-compatible provider
 - **Prompt Engineering:** Strict JSON schema generation with clinical safety validation, patient context injection, and diagnostic disclaimer guardrails
 - **Fallback Engine:** Rule-based explainer providing baseline biomarker context if an external LLM is offline or unconfigured
 
@@ -44,7 +44,7 @@ MediClear is a healthcare application that helps patients understand laboratory 
 
 ### DevOps, Containerization & Testing
 - **Containers:** [Docker](https://www.docker.com/) & [Docker Compose](https://docs.docker.com/compose/) (Multi-stage builds: Nginx Alpine for frontend, Debian-based Python + Tesseract for backend)
-- **Testing:** [Pytest](https://docs.pytest.org/) (Comprehensive unit testing for parsers, fuzzy normalizers, and API endpoints)
+- **Testing:** [Pytest](https://docs.pytest.org/) (Unit tests for the parser, normalizer, AI safety layer and report pipeline, plus registration endpoint tests)
 - **Version Control:** Git & GitHub
 
 
@@ -115,6 +115,7 @@ The project owner must privately provide:
 ```text
 SUPABASE_URL
 SUPABASE_ANON_KEY
+SUPABASE_SERVICE_KEY   (backend only)
 ```
 
 These credentials point to the **existing shared Supabase project**.
@@ -129,15 +130,16 @@ Create:
 backend/.env
 ```
 
-Add:
+Copy `.env.example` from the repo root to `backend/.env` and fill it in:
 
 ```env
 SUPABASE_URL=<shared-supabase-url>
 SUPABASE_ANON_KEY=<shared-anon-key>
+SUPABASE_SERVICE_KEY=<shared-service-role-key>
 AI_API_KEY=<your-ai-key>
-BACKEND_HOST=127.0.0.1
-BACKEND_PORT=8000
 ```
+
+See [Full Environment Variable Reference](#full-environment-variable-reference) for the optional settings.
 
 ### 4. Configure Frontend
 
@@ -333,13 +335,32 @@ The backend reads `backend/.env` automatically via `env_file` in docker-compose.
 From the `backend/` directory with the virtual environment active:
 
 ```powershell
-pip install pytest
-pytest tests/ -v
+pip install -r requirements-dev.txt
+pytest -v
 ```
 
+The tests need no network or Supabase connection.
+
 Current test coverage:
-- `tests/test_parser.py` — lab text extraction (inline, colon, no-ref patterns)
-- `tests/test_normalizer.py` — status logic (LOW/NORMAL/HIGH/CRITICAL), fuzzy matching, fallback ranges
+- `tests/test_parser.py` — lab text extraction: comma-grouped values, units with digits, one-sided ranges, metadata lines
+- `tests/test_normalizer.py` — status logic (LOW/NORMAL/HIGH/CRITICAL, one-sided ranges), test name matching, fallback ranges and unit checks
+- `tests/test_ai.py` — AI safety filter, patient context in prompts, explanation reuse and regeneration
+- `tests/test_report_service.py` — sex-specific ranges, saving lab results with and without the `needs_review` column
+- `tests/test_auth_api.py` — `POST /auth/register`: duplicate emails, rollback, validation
+
+Not yet covered: OCR, the remaining API endpoints, and the frontend.
+
+---
+
+## Database Migrations
+
+Schema changes made after the initial setup live in `data/migrations/`, numbered in the order they must be applied. Run each one once in the **Supabase SQL Editor** for the shared project (they are safe to re-run):
+
+| Migration | What it does |
+|---|---|
+| `001_lab_results_needs_review.sql` | Adds `lab_results.needs_review` so uncertain results are flagged per row |
+
+When you add a migration, add a row here and tell the team so nobody's code expects a column that isn't there yet.
 
 ---
 
@@ -350,9 +371,9 @@ Current test coverage:
 | Variable              | Required | Description                                              |
 |-----------------------|----------|----------------------------------------------------------|
 | `SUPABASE_URL`        | ✅        | Supabase project URL                                     |
-| `SUPABASE_SERVICE_KEY`| ✅        | Supabase service-role key (backend only, never frontend) |
-| `JWT_SECRET`          | ✅        | Supabase JWT secret (from project settings)              |
-| `AI_API_KEY`          | optional | OpenAI (or compatible) API key for AI explanations       |
+| `SUPABASE_ANON_KEY`   | ✅        | Supabase anon/public key (the backend won't start without it) |
+| `SUPABASE_SERVICE_KEY`| recommended | Service-role key (backend only, never frontend). Without it the backend uses the anon key, so writes blocked by Row Level Security fail and failed registrations can't be rolled back |
+| `AI_API_KEY`          | optional | OpenAI (or compatible) API key; without it explanations use a basic fallback text |
 | `AI_BASE_URL`         | optional | AI API base URL (default: `https://api.openai.com/v1`)   |
 | `AI_MODEL`            | optional | Model name (default: `gpt-3.5-turbo`)                    |
 | `CORS_ALLOW_ORIGINS`  | optional | Comma-separated allowed origins (default: localhost:3000) |
@@ -363,4 +384,4 @@ Current test coverage:
 |-------------------------|----------|------------------------------------|
 | `VITE_SUPABASE_URL`     | ✅        | Supabase project URL               |
 | `VITE_SUPABASE_ANON_KEY`| ✅        | Supabase anon/public key           |
-| `VITE_API_BASE_URL`     | optional | Backend URL (default: `http://127.0.0.1:8000`) |
+| `VITE_API_BASE_URL`     | optional | Backend URL (default: `http://127.0.0.1:8000`) |
