@@ -163,3 +163,26 @@ def test_kerned_word_pieces_are_rejoined(gap):
 def test_real_spaces_are_kept(left, right, expected):
     doc, _ = _two_pieces(left, right, fitz.get_text_length(" ", fontsize=9))
     assert extract_text_from_pdf(doc.tobytes()) == expected
+
+
+# ── PDFs whose fonts map characters into the Private Use Area ───────────────
+
+def test_symbol_font_text_is_decoded():
+    from app.ocr.pdf import _decode_symbol_font
+    shifted = "".join(chr(0xF000 + ord(c)) for c in "Hemoglobin 11.2 g/dL 12.0 - 15.5")
+    assert _decode_symbol_font(shifted) == "Hemoglobin 11.2 g/dL 12.0 - 15.5"
+    assert parse_lab_text(_decode_symbol_font(shifted))[0]["value"] == 11.2
+
+
+def test_symbol_font_pdf_is_read(monkeypatch):
+    # Simulate PyMuPDF returning Private Use Area text for every word
+    from app.ocr import pdf as pdf_module
+    original = pdf_module._page_text_by_rows
+    monkeypatch.setattr(
+        pdf_module, "_page_text_by_rows",
+        lambda page: "".join(chr(0xF000 + ord(c)) if " " <= c <= "\xff" else c for c in original(page)),
+    )
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "Hemoglobin 11.2 g/dL 12.0 - 15.5", fontsize=11)
+    text = extract_text_from_pdf(doc.tobytes())
+    assert "Hemoglobin 11.2 g/dL" in text

@@ -227,3 +227,25 @@ class TestExplanatoryText:
     ])
     def test_longer_real_names_kept(self, line, name):
         assert parse_lab_text(line)[0]["test_name_raw"] == name
+
+
+# ── Rows without a reference range need a real unit ─────────────────────────
+
+@pytest.mark.parametrize("line", [
+    "DELHI 110085 Sector 18, Rohini",
+    "exercise in past 3 days and/or renal",
+    "Follow up every 2 weeks",
+])
+def test_address_and_advice_text_are_not_results(line):
+    assert parse_lab_text(line) == []
+
+
+@pytest.mark.parametrize("line, unit", [
+    ("TROPONIN- I, SERUM HIGH SENSITIVE 4 ng/L", "ng/L"),
+    ("MCV 88 fL", "fL"),
+    ("HbA1c 6.1 %", "%"),
+    ("Prothrombin Time 13.2 sec", "sec"),
+])
+def test_rows_without_range_keep_real_units(line, unit):
+    rows = parse_lab_text(line)
+    assert len(rows) == 1 and rows[0]["unit"] == unit

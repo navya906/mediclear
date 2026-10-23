@@ -178,7 +178,9 @@ class TestExplanationService:
         assert isinstance(fake.inserted[0]["lab_result_id"], str)  # not a UUID object
 
     def test_good_explanation_is_reused(self):
-        existing = {"id": "e1", "model": "gpt-4o-mini", "simple_explanation": "Old"}
+        # Written for the same (empty) patient context, so it is still current
+        existing = {"id": "e1", "model": "gpt-4o-mini", "simple_explanation": "Old",
+                    "prompt_version": generator.expected_prompt_version([], None, None)}
         fake = FakeExplanations(existing)
         assert explanation_service.get_or_create_explanation(fake, self.RESULT, {}, []) == existing
         assert fake.inserted == []

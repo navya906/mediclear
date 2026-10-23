@@ -79,6 +79,55 @@ def update_my_profile(
     return PatientResponse(**result.data[0])
 
 
+def _result_date(row: dict) -> str:
+    """Date for a lab result: the date printed on the report, else the upload time."""
+    report = row.get("reports") or {}
+    return report.get("report_date") or report.get("created_at") or ""
+
+
+@router.get("/me/trends/tests", summary="Tests this patient has results for")
+def get_trend_tests(user_id: str = Depends(get_current_user)):
+    """
+    One entry per matched test the patient has at least one numeric result for,
+    most readings first. Lets the dashboard offer only tests that will draw a
+    chart, and pick a sensible default, even when there is very little data.
+    """
+    supabase = get_supabase()
+    patient_id = _get_patient_by_auth_user(user_id)["id"]
+
+    rows = (
+        supabase.table("lab_results")
+        .select(
+            "value, reports!inner(patient_id, report_date, created_at), "
+            "test_definitions!inner(canonical_name, display_name, category)"
+        )
+        .eq("reports.patient_id", patient_id)
+        .execute()
+        .data
+        or []
+    )
+
+    tests: dict = {}
+    for r in rows:
+        if r.get("value") is None:
+            continue
+        td = r.get("test_definitions") or {}
+        name = td.get("canonical_name")
+        if not name:
+            continue
+        entry = tests.setdefault(name, {
+            "value": name,
+            "label": td.get("display_name") or name,
+            "category": td.get("category"),
+            "count": 0,
+            "latest_date": "",
+        })
+        entry["count"] += 1
+        entry["latest_date"] = max(entry["latest_date"], _result_date(r)[:10])
+
+    return sorted(tests.values(), key=lambda t: (-t["count"], t["label"].lower()))
+
+
 @router.get("/me/trends")
 def get_patient_trends(
     test_name: str,
@@ -89,25 +138,39 @@ def get_patient_trends(
 
     # Fetch lab results joined with reports for the test definition canonical name
     query = supabase.table("lab_results")\
-        .select("value, reports!inner(report_date, created_at), test_definitions!inner(canonical_name)")\
+        .select(
+            "value, unit, status, reference_min, reference_max, "
+            "reports!inner(id, file_name, report_date, created_at), "
+            "test_definitions!inner(canonical_name)"
+        )\
         .eq("reports.patient_id", patient_id)\
         .eq("test_definitions.canonical_name", test_name)\
         .execute()
 
     results = query.data or []
 
-    # Format the response for the chart (needs date and value).
-    # Prefer the date printed on the report; fall back to the upload date.
+    # Format the response for the chart. Prefer the date printed on the report;
+    # fall back to the upload date. Unit, status and reference range let the
+    # chart show whether a value is in range even with a single reading.
     trends = []
     for r in results:
         report_data = r.get("reports") or {}
-        report_date = report_data.get("report_date") or report_data.get("created_at")
+        report_date = _result_date(r)
         if report_date and r.get("value") is not None:
             trends.append({
                 "date": report_date[:10],  # YYYY-MM-DD
-                "value": r["value"]
+                "sort_key": report_date,   # full timestamp keeps same-day uploads in order
+                "value": r["value"],
+                "unit": r.get("unit"),
+                "status": r.get("status"),
+                "reference_min": r.get("reference_min"),
+                "reference_max": r.get("reference_max"),
+                "report_id": report_data.get("id"),
+                "file_name": report_data.get("file_name"),
             })
 
     # PostgREST can't order parent rows by an embedded column here, so sort in Python
-    trends.sort(key=lambda t: t["date"])
+    trends.sort(key=lambda t: t["sort_key"])
+    for t in trends:
+        del t["sort_key"]
     return trends

@@ -3,11 +3,13 @@ OCR PDF module — PDF-specific text extraction.
 
 Strategy:
   1. Try PyMuPDF's text layer (fast, accurate for digital PDFs).
-  2. If no text is found (scanned PDF), render each page to a high-DPI image,
+  2. If no readable text is found (scanned PDF, or fonts with no usable
+     character mapping), render each page to a high-DPI image,
      run preprocessing, then extract via Tesseract.
 """
 
 import io
+import re
 from typing import List
 
 import fitz  # PyMuPDF
@@ -73,6 +75,20 @@ def _join_row(words) -> str:
     return text
 
 
+# Some lab software embeds "symbol" fonts whose characters PyMuPDF reports in
+# the Private Use Area, shifted by 0xF000: "Report" comes out as
+# U+F052 U+F065 U+F070 ... The text is there, just unreadable until shifted back.
+_SYMBOL_FONT_SHIFT = {c: c - 0xF000 for c in range(0xF020, 0xF100)}
+
+# Usable text has at least one run of 3 letters ("Hemoglobin", "TSH", "mg/dL")
+_READABLE = re.compile(r"[A-Za-z]{3}")
+
+
+def _decode_symbol_font(text: str) -> str:
+    """Map Private Use Area characters U+F020-U+F0FF back to Latin-1."""
+    return text.translate(_SYMBOL_FONT_SHIFT)
+
+
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """
     Extract text from a PDF file.
@@ -81,8 +97,11 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     doc = fitz.open(stream=file_bytes, filetype="pdf")
 
     # ── Pass 1: native text layer ───────────────────────────────────────────
-    full_text = "\n".join(_page_text_by_rows(page) for page in doc).strip()
-    if full_text:
+    full_text = _decode_symbol_font(
+        "\n".join(_page_text_by_rows(page) for page in doc)
+    ).strip()
+    # A text layer of only symbols or unmapped glyphs is treated like a scan
+    if _READABLE.search(full_text):
         return full_text
 
     # ── Pass 2: scanned PDF — render to image and OCR each page ────────────

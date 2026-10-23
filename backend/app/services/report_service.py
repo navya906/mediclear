@@ -12,7 +12,11 @@ from postgrest.exceptions import APIError
 from app.database.client import fetch_one, get_supabase
 from app.ocr.core import extract_text_from_file
 from app.parser.core import normalize_and_score, parse_lab_text
-from app.services.explanation_service import get_or_create_explanation
+from app.services.explanation_service import (
+    get_or_create_explanation,
+    load_patient_results,
+    previous_results_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,13 @@ def process_report_background(
 
         # ── 3. Parse ──────────────────────────────────────────────────────
         parsed_results = parse_lab_text(raw_text)
+        if not parsed_results:
+            # Otherwise the report shows "Completed" with an empty results table
+            raise ValueError(
+                "No test results could be read from this report. "
+                "It may have no values filled in yet (for example an interim report), "
+                "or be in a layout MediClear can't read."
+            )
 
         # ── 4. Fetch test definitions and patient context ─────────────────
         defs_result = supabase.table("test_definitions").select("*").execute()
@@ -110,12 +121,20 @@ def process_report_background(
         history_res = supabase.table("patient_history").select("*").eq("patient_id", patient_id).execute()
         patient_history = history_res.data or []
 
+        # Earlier results (from older reports) give the AI each test's history
+        report_row = fetch_one(
+            supabase.table("reports").select("report_date, created_at").eq("id", report_id)
+        ) or {}
+        current_date = report_row.get("report_date") or report_row.get("created_at")
+        patient_results = load_patient_results(supabase, patient_id)
+
         for result_row in saved_results:
             try:
                 if not result_row.get("id"):
                     continue
                 test_def = defs_by_id.get(result_row.get("test_definition_id")) or {}
-                get_or_create_explanation(supabase, result_row, test_def, patient_history, patient)
+                previous = previous_results_for(patient_results, result_row, current_date)
+                get_or_create_explanation(supabase, result_row, test_def, patient_history, patient, previous)
             except Exception as explain_err:
                 logger.warning("Auto-explanation failed for result %s: %s", result_row.get("id"), explain_err)
 

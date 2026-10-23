@@ -11,7 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.database.client import fetch_one, get_supabase
 from app.schemas.explanation import ExplanationResponse
-from app.services.explanation_service import get_or_create_explanation
+from app.services.explanation_service import (
+    get_or_create_explanation,
+    load_patient_results,
+    previous_results_for,
+)
 from app.utils.auth import get_current_user
 
 router = APIRouter(prefix="/results", tags=["results"])
@@ -49,9 +53,14 @@ def explain_result(result_id: UUID, user_id: str = Depends(get_current_user)):
     history_res = supabase.table("patient_history").select("*").eq("patient_id", patient_id).execute()
     patient_history = history_res.data or []
 
-    # 3. Reuse the stored explanation, or generate one (also replaces
-    #    placeholders left by an earlier LLM failure or missing API key)
-    saved = get_or_create_explanation(supabase, result_data, test_def, patient_history, patient)
+    # 3. Earlier results for the same test, from reports dated before this one
+    current_date = report_data.get("report_date") or report_data.get("created_at")
+    previous = previous_results_for(load_patient_results(supabase, patient_id), result_data, current_date)
+
+    # 4. Reuse the stored explanation, or generate one. Also replaces placeholders
+    #    left by an LLM failure or missing API key, and explanations written
+    #    before the patient's age, sex, history or earlier results changed.
+    saved = get_or_create_explanation(supabase, result_data, test_def, patient_history, patient, previous)
     if not saved:
         raise HTTPException(status_code=500, detail="Failed to save explanation.")
 

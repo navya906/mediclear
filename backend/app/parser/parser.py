@@ -175,6 +175,26 @@ def _looks_like_prose(name: str, rest_of_line: str, has_range: bool) -> bool:
     return len(trailing) > _MAX_TRAILING_WORDS
 
 
+# Units without "/", "%" or "µ" that still mark a real lab value
+_BARE_UNITS = {
+    "fl", "pg", "g", "mg", "ng", "iu", "u", "miu", "uiu", "µiu", "μiu", "mmol", "meq",
+    "mmhg", "sec", "secs", "seconds", "ratio", "index", "cells", "lakh", "lakhs",
+    "million", "mill", "thou", "cumm", "ml", "dl", "l",
+}
+
+
+def _looks_like_unit(unit: str) -> bool:
+    """
+    True for lab units ("g/dL", "%", "fL", "x10^3/uL", "µIU/mL").
+    Used for rows with no reference range, so that "Delhi 110085 Sector"
+    or "exercise in past 3 days" in advice text are not read as results.
+    """
+    u = unit.strip().rstrip(".")
+    if any(ch in u for ch in "/%µμ") or re.search(r"10\s?(?:\^|\*\*)?\s?[0-9³⁶⁹]", u):
+        return True
+    return u.lower() in _BARE_UNITS
+
+
 def _parse_line(line: str) -> Optional[Dict]:
     if _DATE_OR_TIME.search(line):
         return None
@@ -192,7 +212,7 @@ def _parse_line(line: str) -> Optional[Dict]:
     unit = m.group("unit") or (m.group("unit_after") if ref_text else None)
     if unit and unit.lower().rstrip(".") in _CONNECTING_WORDS:
         unit = None  # "from 29 to 38": "to" is not a unit
-    if not unit and ref_text is None:
+    if ref_text is None and not (unit and _looks_like_unit(unit)):
         return None
 
     if ref_min is not None and ref_max is not None:
